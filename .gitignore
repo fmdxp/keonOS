@@ -12,6 +12,7 @@
 # Build directories
 iso/
 build/
+cross/
 
 # --- Emulator & Debugging ---
 
