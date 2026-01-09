@@ -8,6 +8,11 @@
 
 #include <proc/thread.h>
 
+#include <fs/ramfs.h>
+#include <fs/ramfs_vfs.h>
+#include <fs/vfs.h>
+#include <fs/vfs_node.h>
+
 #include <drivers/keyboard.h>
 #include <drivers/timer.h>
 #include <drivers/vga.h>
@@ -32,7 +37,7 @@ static const char* command_list[] =
 {
     "help", "clear", "echo", "info", "testheap", "meminfo", 
     "reboot", "halt", "paginginfo", "testpaging", "memstat", "dump",
-	"uptime", "ps", "pkill"
+	"uptime", "ps", "pkill", "ls", "cat"
 };
 #define COMMAND_COUNT (sizeof(command_list) / sizeof(char*))
 
@@ -91,6 +96,8 @@ static void cmd_help(const char* args)
         printf("  uptime   - Shows system uptime\n");
         printf("  ps       - Shows system processes\n");
         printf("  pkill    - Kills an active process\n");
+        printf("  ls       - Lists the contents of a directory\n");
+        printf("  cat      - Displays the content of a file\n");
         printf("\nType 'help --dev' for developer commands\n");
 	}
 }
@@ -405,6 +412,90 @@ static void cmd_dump(const char* args)
     printf("\n");
 }
 
+/**
+ * cmd_ls: Displays the contents of a directory
+ */
+static void cmd_ls(const char* args) 
+{
+    char path[256];
+
+    if (!args || args[0] == '\0') strcpy(path, "/");
+        
+    else if (args[0] != '/') 
+    {
+        path[0] = '/';
+        strcpy(path + 1, args);
+    } 
+
+    else strcpy(path, args);
+        
+
+    VFSNode* dir = vfs_open(path);
+    
+    if (dir) 
+    {
+        if (dir->type == VFS_DIRECTORY) 
+        {
+            uint32_t i = 0;
+            vfs_dirent* de;
+
+            while ((de = vfs_readdir(dir, i++)))
+                printf("%s  ", de->name);
+            
+            printf("\n");
+        } 
+
+        else printf("ls: '%s' is not a directory\n", path);
+        vfs_close(dir);
+    } 
+
+    else printf("ls: cannot access '%s': No such directory\n", path);
+    
+}
+
+
+/**
+ * cmd_ls: Displays the contents of a file
+ */
+static void cmd_cat(const char* args) 
+{
+    char path[256];
+    if (!args || args[0] == '\0') 
+    {
+        printf("Usage: cat <filename>\n");
+        return;
+    }
+
+    if (args[0] != '/') 
+    {
+        path[0] = '/';
+        strcpy(path + 1, args);
+    } 
+    else strcpy(path, args);
+    
+    VFSNode* file = vfs_open(path);
+    if (file) 
+    {
+        if (file->type == VFS_FILE) 
+        {
+            uint8_t buffer[513];
+            uint32_t offset = 0;
+            uint32_t bytes_read;
+
+            while ((bytes_read = vfs_read(file, offset, 512, buffer)) > 0) 
+            {
+                buffer[bytes_read] = '\0';
+                printf("%s", (char*)buffer);
+                offset += bytes_read;
+            }
+            printf("\n");
+        }
+        else printf("cat: %s: Is a directory\n", path);
+        vfs_close(file);
+    }
+
+    else printf("cat: %s: No such file or directory\n", path);
+}
 
 /**
  * shell_tab_completion: Provides basic command autocompletion
@@ -506,6 +597,8 @@ void shell_execute(const char* command)
     else if (strcmp(cmd, "uptime") == 0)        cmd_uptime();
     else if (strcmp(cmd, "ps") == 0)            cmd_ps();
     else if (strcmp(cmd, "pkill") == 0)         cmd_pkill(args);
+    else if (strcmp(cmd, "ls") == 0)            cmd_ls(args);
+    else if (strcmp(cmd, "cat") == 0)            cmd_cat(args);
 
 	else printf("Unknown command: %s\nType 'help' for available commands", command);
     terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));

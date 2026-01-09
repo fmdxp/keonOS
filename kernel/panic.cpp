@@ -40,7 +40,7 @@ void panic(KernelError error, const char* message, uint32_t error_code)
     }
     
     // Display raw error code (useful for Page Faults or Exception codes)
-    if (error_code)
+    if (error_code || error_code == 0UL)
     {
         terminal_setcolor(vga_color_t(VGA_COLOR_YELLOW, VGA_COLOR_RED));
         printf("\nError Code: 0x");

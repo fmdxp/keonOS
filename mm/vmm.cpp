@@ -56,3 +56,16 @@ size_t VMM::get_total_allocated()
 {
 	return vmm_allocated_bytes;
 }
+
+void* VMM::map_physical_region(uintptr_t phys_addr, size_t pages, uint32_t flags)
+{
+    void* start_addr = (void*)kernel_dynamic_break;
+
+    for (size_t i = 0; i < pages; i++)
+    {
+        paging_map_page((void*)(kernel_dynamic_break), (void*)(phys_addr + (i * PAGE_SIZE)), flags, false);
+        kernel_dynamic_break += PAGE_SIZE;
+    }
+
+    return start_addr;
+}

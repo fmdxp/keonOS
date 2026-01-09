@@ -14,6 +14,6 @@
 #error "keonOS needs to be compiled with a ix86-elf (cross-)compiler. Aborting..."
 #endif
 
-extern "C" void kernel_main(void);
+extern "C" void kernel_main(uint32_t magic, multiboot_info_t* info);
 
 #endif		// KERNEL_H

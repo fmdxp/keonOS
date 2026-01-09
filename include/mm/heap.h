@@ -25,11 +25,15 @@ void* kmalloc(size_t size);
 void kfree(void* ptr);
 void kheap_get_stats(struct heap_stats* stats);
 
+inline void* operator new(size_t, void* p) throw() {
+    return p;
+}
+
 void* operator new(size_t size);
 void* operator new[](size_t size);
-void operator delete(void* ptr);
-void operator delete[](void* ptr);
-void operator delete(void* ptr, size_t size);
+void operator delete(void* ptr) noexcept;
+void operator delete[](void* ptr) noexcept;
+void operator delete(void* ptr, size_t size) noexcept;
 
 heap_block* get_kheap_start();
 

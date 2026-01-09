@@ -12,6 +12,7 @@ enum class KernelError : uint32_t
 {
     K_OK = 0,
     K_ERR_MULTIBOOT_FAILED,
+    K_ERR_RAMFS_MAGIC_FAILED,
 	K_ERR_SYSTEM_INIT_FAILED,
 	K_ERR_SYSTEM_PAGING_ENABLE_FAILED,
 	K_ERR_SYSTEM_TIMER_INIT_FAILED,
@@ -32,7 +33,7 @@ inline const char* kerror_to_str(KernelError err)
     switch(err)
     {
         case KernelError::K_OK: 								return "No Error: OK";
-		case KernelError::K_ERR_MULTIBOOT_FAILED:               return "Not a Multiboot compliant MAGIC.";
+        case KernelError::K_ERR_RAMFS_MAGIC_FAILED:             return "Not a valid keonOS RAMFS MAGIC.";
         case KernelError::K_ERR_SYSTEM_INIT_FAILED: 			return "Failed system initialization.";
 		case KernelError::K_ERR_SYSTEM_PAGING_ENABLE_FAILED:	return "Failed system paging initialization.";
 		case KernelError::K_ERR_SYSTEM_TIMER_INIT_FAILED:		return "Failed system timer initialization.";

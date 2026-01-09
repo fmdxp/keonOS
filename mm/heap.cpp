@@ -111,39 +111,6 @@ void kfree(void* ptr)
 }
 
 
-void* operator new(size_t size) noexcept
-{
-    return kmalloc(size);
-}
-
-void* operator new[](size_t size) noexcept
-{
-    return kmalloc(size);
-}
-
-void operator delete(void* ptr) noexcept
-{
-    kfree(ptr);
-}
-
-void operator delete[](void* ptr) noexcept
-{
-    kfree(ptr);
-}
-
-void operator delete[](void* ptr, size_t size) noexcept
-{
-    (void)size;
-    kfree(ptr);
-}
-
-void operator delete(void* ptr, size_t size) noexcept
-{
-    (void)size;
-    kfree(ptr);
-}
-
-
 void kheap_get_stats(struct heap_stats* stats) 
 {
     if (!stats) return;
@@ -176,4 +143,26 @@ void kheap_get_stats(struct heap_stats* stats)
 heap_block* get_kheap_start()
 {
     return heap_start;
+}
+
+void* operator new(size_t size) {
+    return kmalloc(size);
+}
+
+void* operator new[](size_t size) {
+    return kmalloc(size);
+}
+
+void operator delete(void* ptr) noexcept {
+    kfree(ptr);
+}
+
+void operator delete[](void* ptr) noexcept {
+    kfree(ptr);
+}
+
+void operator delete(void* ptr, size_t size) noexcept 
+{
+    (void)size;
+    kfree(ptr);
 }

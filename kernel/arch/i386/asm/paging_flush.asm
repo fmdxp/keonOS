@@ -18,7 +18,6 @@ paging_enable:
     or eax, 0x80000000  
     mov cr0, eax      
     jmp .flush
-
 .flush:
     ret
 

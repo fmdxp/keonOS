@@ -12,6 +12,11 @@
 #include <mm/heap.h>
 #include <mm/paging.h>
 
+#include <fs/vfs.h>
+#include <fs/ramfs.h>
+#include <fs/vfs_node.h>
+#include <fs/ramfs_vfs.h>
+
 #include <drivers/vga.h>
 #include <drivers/timer.h>
 #include <drivers/serial.h>
@@ -25,46 +30,99 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern "C" uint32_t multiboot_magic;
-extern "C" multiboot_info_t *multiboot_info_ptr;
+
 extern "C" uint32_t _kernel_end;
 
-extern "C" void kernel_main()
+extern "C" void kernel_main(uint32_t magic, multiboot_info_t* info)
 {
 	// 1. Core Architecture Setup
     // Initialize C++ global constructors, terminal output, and CPU tables (GDT/IDT)
 	initialize_constructors();
 	terminal_initialize();
+	serial_install();
 	gdt_init();
 	idt_init();
 
 	// 2. Memory Management Setup
     // Disable interrupts during critical memory initialization
 	asm volatile("cli");
-
-	// Calculate total system memory using information passed by the Multiboot bootloader
-	uint32_t total_mem_bytes = (multiboot_info_ptr->mem_lower + multiboot_info_ptr->mem_upper) * 1024;
 	
-	// Enable Paging: This maps physical memory to virtual memory addresses
-	paging_init();
+	// Calculate total system memory using information passed by the Multiboot bootloader
+	uint32_t total_mem_bytes = (info->mem_lower + info->mem_upper) * 1024;
+	
 
+	uint32_t rd_phys = 0;
+	uint32_t rd_size = 0;
+	if (info->mods_count > 0) 
+	{
+		multiboot_module_t* m = (multiboot_module_t*)info->mods_addr;
+		rd_phys = m[0].mod_start;
+		rd_size = m[0].mod_end - m[0].mod_start;
+	}
+		
+
+	// Enable Paging: This maps physical memory to virtual memory addresses
+	paging_init();	
+	
 	// 3. Dynamic Memory (Heap) Initialization
     // Define the starting point of the heap and allocate an initial 16MB block
 	void* heap_start = (void*)VMM::kernel_dynamic_break;
-	uint32_t initial_heap_size = 16 * 1024 * 1024;	// 16MB
-
+	uint32_t initial_heap_size = 4 * 1024 * 1024;	// 4MB
+	
 	// Expand the virtual address space and initialize the kernel heap allocator
 	VMM::sbrk(initial_heap_size);
 	kheap_init(heap_start, initial_heap_size);
 	
+	
 	// 4. Subsystem Initialization
     // Initialize the Programmable Interval Timer (PIT) at 100Hz
 	timer_init(100);
-
+	
 	// Setup the threading system (Scheduler) and the keyboard driver
 	thread_init();
 	keyboard_init();
-	
+
+
+	printf("mods_count = %d\n", info->mods_count);
+	printf("mods_addr  = %x\n", info->mods_addr);
+
+	void* ramdisk_vaddr = nullptr;
+	KeonFS_MountNode* ramfs_ptr = nullptr;
+
+	if (rd_phys != 0) 
+	{
+		size_t rd_pages = (rd_size + 4095) / 4096;
+		ramdisk_vaddr = (void*)0xE0000000;
+
+		for(size_t i = 0; i < rd_pages; i++)
+		{
+			paging_map_page(
+				(void*)((uintptr_t)ramdisk_vaddr + (i * PAGE_SIZE)), 
+				(void*)(rd_phys + (i * PAGE_SIZE)), 
+				PTE_PRESENT, 
+				true
+        	);
+    	}
+
+		KeonFS_Info* fs_info = (KeonFS_Info*)ramdisk_vaddr;
+		if (fs_info->magic != KEONFS_MAGIC)
+			panic(KernelError::K_ERR_RAMFS_MAGIC_FAILED, "Ramfs not found at 0xE0000000");
+	}
+
+	vfs_init();
+	if (ramdisk_vaddr != nullptr) 
+	{
+		ramfs_ptr = new KeonFS_MountNode("initrd", ramdisk_vaddr);
+		KeonFS_FileHeader* hdr = (KeonFS_FileHeader*)((uintptr_t)ramfs_ptr->base + sizeof(KeonFS_Info));
+
+		if (ramfs_ptr->info->magic != KEONFS_MAGIC)
+        	panic(KernelError::K_ERR_RAMFS_MAGIC_FAILED, "Magic corrupt after constructor!");
+    	
+		uint32_t* magic_ptr = (uint32_t*)ramdisk_vaddr;
+		vfs_mount(ramfs_ptr);
+	}
+		
+
 	// Re-enable interrupts after safe hardware/memory setup
 	asm volatile("sti");
 	
@@ -104,16 +162,28 @@ extern "C" void kernel_main()
 	printf("[*] Initialized Threads\n");
 	printf("[*] Initialized Keyboard\n");
 	printf("[*] Initialized Shell\n");
-	
-	// Panic if the bootloader didn't provide a valid Multiboot magic number
-	if (multiboot_magic == MULTIBOOT_BOOTLOADER_MAGIC) printf("[*] Multiboot OK\n");
-	else panic(KernelError::K_ERR_MULTIBOOT_FAILED, "Unknown (Magic: %x)\n", multiboot_magic);
+	printf("[*] Initialized KeonFS (ramfs)\n");
 	
 	// Display detected RAM size
-	if (multiboot_info_ptr->flags & (1 << 0))
+	if (info->flags & (1 << 0))
 		printf("Memory found: %d MB\n\n\n\n", (total_mem_bytes / 1024) / 1024);
-	
 
+
+
+	FILE* f = fopen("/initrd/test.txt", "r");
+	if (!f) printf("[ERROR] fopen failed! Check file path or mount.\n");
+	else 
+	{
+		char c;
+		printf("Contents of /initd/test.txt: ");
+		while (fread(&c, 1, 1, f) == 1) 
+			putchar(c);
+		
+		printf("\n");
+
+		fclose(f);
+	}
+	
 	// 7. Launch First User Process
     // Initialize the shell and add it as the primary thread to the scheduler
 	shell_init();

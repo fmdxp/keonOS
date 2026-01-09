@@ -12,6 +12,7 @@ public:
 	static void* sbrk(size_t increment_bytes);
 	static size_t get_total_allocated();
 	static uintptr_t kernel_dynamic_break;
+	static void* map_physical_region(uintptr_t phys_addr, size_t pages, uint32_t flags);
 };
 
 
