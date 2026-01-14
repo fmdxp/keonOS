@@ -108,7 +108,7 @@ iso: $(ISO_DIR)/boot/kernel.bin $(GRUB_CFG) $(INITRD_IMG)
 
 run: $(ISO_IMG)
  
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -serial stdio -m 512M -boot d -machine acpi=off -d int,cpu_reset -D qemu.log -s -S
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -serial stdio -m 512M -boot d -machine acpi=off -d int,cpu_reset -D qemu.log
 
 clean:
 	rm -rf $(BUILD_DIR)
