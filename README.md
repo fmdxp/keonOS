@@ -1,40 +1,49 @@
 # keonOS 🚀
 
-A monolithic 64-bit x86_64 operating system built from scratch in C++ and Assembly.
+A monolithic **64-bit x86_64 operating system** built from scratch in **C++ and Assembly**.
 
 ---
 
 ## 🏗️ Architecture & Core Features
 
 ### 🧠 Advanced Memory Management
-- **Higher Half Kernel:** The kernel sits now at `0xC0000000`, neatly separating the kernel addresses with the user ones (for future development).
-- **Boot-time Paging:** Implemented a log of bootstrapping in Assembly to map critical pages before going to the Higher Half.
-- **Custom VMM & PFA:** Advance management of physical frames and of virtual addressed with support of recorsive mapping.
-- **Kernel Heap:** Fully functional dynamic memory management with support for `kmalloc`, `kfree`, and C++ `new`/`delete` operators.
+- **Higher Half Kernel:** Kernel mapped in the higher half (`0xC0000000+`) with clean separation between kernel and future user space.
+- **Long Mode Paging:** Fully adapted paging and memory layout for **x86_64 long mode**.
+- **Custom VMM & PFA:** Physical Frame Allocator and Virtual Memory Manager with structured virtual address handling.
+- **Kernel Heap:** Dynamic memory management with `kmalloc`, `kfree`, and native C++ `new` / `delete`.
 
-### 🎭 Multitasking & Scheduling
-- **Cooperative Multitasking:** Round-robin scheduler handling multiple kernel threads.
-- **Process Control:** Built-in support for process listing (`ps`) and thread termination (`pkill`).
-- **Post-Mortem Debugging:** Advanced **Kernel Panic** system that captures CPU registers and performs a full stack hex-dump upon failure.
+### 🎭 Multitasking & Thread Management
+- **Cooperative Multitasking:** Round-robin scheduler for kernel threads.
+- **Thread Lifecycle Tracking:** Proper thread termination with **zombie state handling**.
+- **Return Codes:** Threads can exit with a return status, preserved for post-execution inspection.
+- **Expanded Kernel Stack:** Each kernel thread uses a **64 KB stack**, improving reliability under deep call paths.
+- **Post-Mortem Debugging:** Kernel panic system with register dump and stack inspection (64-bit aware).
 
-### 💻 Interactive Shell
-- **User Interface:** A custom shell with advanced features:
-  - **Command History:** Navigate previous commands with Up/Down arrows.
-  - **Tab-Completion:** Quick command execution.
-  - **System Diagnostics:** Real-time stats for paging, heap, and uptime.
+---
+
+## 💻 Interactive Shell
+- **Custom CLI Shell** with:
+  - **Command History** (Up / Down navigation)
+  - **Tab Completion**
+  - **Filesystem Commands:** `ls`, `cd`, `cat`, `touch`, `rm`, `mkdir`
+  - **Process Commands:** `ps`, `pkill`
+- Designed to directly interface with the VFS and future userland APIs.
+
+---
 
 ### 🔌 Hardware Drivers
 - **VGA:** Text mode driver with custom color schemas.
 - **Keyboard:** Interrupt-based driver with scancode-to-ASCII mapping.
 - **PIT & CMOS:** Programmable Interval Timer for system ticks and timing.
 - **PC Speaker:** Frequency-based audio feedback.
+- **ATA (PIO) Driver:** Low-level ATA driver providing block device access for persistent storage.
 
 ### 📂 Virtual File System (VFS) & Storage
 - **Unified VFS Layer:** An abstract interface that allows the system to interact with different file systems via standard operations like `vfs_open`, `vfs_read`, and `vfs_readdir`.
 - **KeonFS (Ramdisk):** A custom RAM-based file system loaded as a Multiboot module. It supports packed file headers and linear scanning for fast resource access during boot.
 - **Mount System:** Support for mounting multiple file systems under a virtual root (`/`), enabling structured access to system resources (e.g., `/initrd`).
 
-### 📚 Standard Library (LibC)
+### 📚 Standard Library (libc)
 - **File I/O:** Implementation of standard C functions such as `fopen`, `fread`, `fclose`, and `fseek` to bridge the gap between user-level logic and the VFS.
 - **String Manipulation:** A growing suite of memory and string functions (`memcpy`, `memset`, `strcmp`, `strcpy`) optimized for kernel performance.
 
@@ -43,7 +52,7 @@ A monolithic 64-bit x86_64 operating system built from scratch in C++ and Assemb
 ## 🛠️ Build & Development
 
 ### Prerequisites
-You will need an `i686-elf` cross-compiler toolchain, `nasm`, and `qemu`.
+You will need an `x86_64-elf` cross-compiler toolchain, `nasm`, and `qemu` and `mtools`.
 
 ### Tooling
 - **Ramdisk Packer:** Includes a custom Python script (`scripts/pack_keonfs.py`) that automatically bundles assets into a KeonFS image during the build process.
