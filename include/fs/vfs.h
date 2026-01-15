@@ -21,7 +21,10 @@
 #ifndef VFS_H
 #define VFS_H
 
-#include "vfs_node.h"
+#include <fs/vfs_node.h>
+
+extern VFSNode* vfs_root;
+extern VFSNode* cwd_node;
 
 void vfs_init();
 void vfs_mount(VFSNode* node);
@@ -31,5 +34,8 @@ uint32_t vfs_read(VFSNode* node, uint32_t offset, uint32_t size, uint8_t* buffer
 uint32_t vfs_write(VFSNode* node, uint32_t offset, uint32_t size, uint8_t* buffer);
 vfs_dirent* vfs_readdir(VFSNode* node, uint32_t index);
 void vfs_close(VFSNode* node);
+VFSNode* vfs_create(const char* path, uint32_t flags);
+int vfs_mkdir(const char* path, uint32_t mode);
+bool vfs_unlink(const char* path);
 
 #endif 	// VFS_H

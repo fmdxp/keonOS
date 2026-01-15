@@ -35,6 +35,7 @@
 #include <fs/vfs_node.h>
 
 #include <drivers/keyboard.h>
+#include <drivers/serial.h>
 #include <drivers/timer.h>
 #include <drivers/vga.h>
 
@@ -52,13 +53,18 @@
 
 static char input_buffer[SHELL_BUFFER_SIZE];
 static int buffer_pos = 0;
+static char current_working_directory[256] = "/";
+extern VFSNode* cwd_node;
+static char history[MAX_HISTORY][SHELL_BUFFER_SIZE];
+static int history_count = 0;
+static int history_index = -1;
 
 // List of supported commands for the Tab-completion system
 static const char* command_list[] = 
 {
     "help", "clear", "echo", "info", "testheap", "meminfo", 
     "reboot", "halt", "paginginfo", "testpaging", "memstat", "dump",
-	"uptime", "ps", "pkill", "ls", "cat"
+	"uptime", "ps", "pkill", "ls", "cat", "cd", "mkdir", "touch", "rm"
 };
 #define COMMAND_COUNT (sizeof(command_list) / sizeof(char*))
 
@@ -66,8 +72,11 @@ static const char* command_list[] =
 // Initializes the shell buffer and state
 void shell_init()
 {
-	buffer_pos = 0;
-	memset(input_buffer, 0, SHELL_BUFFER_SIZE);
+    buffer_pos = 0;
+    memset(input_buffer, 0, SHELL_BUFFER_SIZE);
+    history_count = 0;
+    history_index = -1;
+    memset(history, 0, sizeof(history));
 }
 
 
@@ -76,10 +85,13 @@ static void shell_prompt()
 {
     terminal_putchar('\n');
 	terminal_setcolor(vga_color_t(VGA_COLOR_LIGHT_BLUE, VGA_COLOR_BLACK));
-	printf("keonOS");
-
+	printf("root@keonOS");
+    terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+    printf(":");
+    terminal_setcolor(vga_color_t(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
+    printf("%s", current_working_directory);
 	terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
-	printf("> ");
+	printf("$ ");
 }
 
 
@@ -89,38 +101,65 @@ static void shell_prompt()
  */
 static void cmd_help(const char* args)
 {
-	bool is_dev = false;
+    bool is_dev = false;
 
-	if (args && args[0] != '\0')
-		if (strcmp(args, "--dev") == 0)
-			is_dev = true;
-	
-	if (is_dev) 
-	{
-        printf("Developer commands:\n");
-        printf("  testheap   - Test heap allocation\n");
-        printf("  testpaging - Test paging functionality\n");
-        printf("  paginginfo - Show paging statistics\n\n");
-        printf("  dump       - Dumps a memory address\n");
+    if (args && args[0] != '\0')
+        if (strcmp(args, "--dev") == 0)
+            is_dev = true;
+    
+    if (is_dev) 
+    {
+        terminal_setcolor(vga_color_t(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK));
+        printf("\n--- Developer & Debugging Commands ---\n");
+        terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+        
+        printf("  testheap   - Stress test the kernel heap allocator\n");
+        printf("  testpaging - Verify virtual memory mapping/unmapping\n");
+        printf("  paginginfo - Display physical frame and page table stats\n");
+        printf("  memstat    - Detailed summary of physical and virtual memory\n");
+        printf("  dump <hex> - Hexdump 64 bytes starting from memory address\n");
+        printf("\n");
     } 
-	
-	else 
-	{
-        printf("Available commands:\n");
-        printf("  help     - Show this help message\n");
-        printf("  clear    - Clear the screen\n");
-        printf("  echo     - Echo text to screen\n");
-        printf("  info     - Show system information\n");
-        printf("  meminfo  - Show memory information\n");
-        printf("  reboot   - Reboot the system\n");
-        printf("  halt     - Halt the system\n");
-        printf("  uptime   - Shows system uptime\n");
-        printf("  ps       - Shows system processes\n");
-        printf("  pkill    - Kills an active process\n");
-        printf("  ls       - Lists the contents of a directory\n");
-        printf("  cat      - Displays the content of a file\n");
-        printf("\nType 'help --dev' for developer commands\n");
-	}
+    else 
+    {
+        terminal_setcolor(vga_color_t(VGA_COLOR_LIGHT_CYAN, VGA_COLOR_BLACK));
+        printf("\n--- keonOS Available Commands ---\n");
+        terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+
+        printf("  help       - Show this help message (use --dev for more)\n");
+        printf("  info       - Show OS version and system branding\n");
+        printf("  uptime     - Display time elapsed since boot\n");
+        printf("  clear      - Clear the terminal screen\n");
+        printf("  reboot     - Perform a cold system restart\n");
+        printf("  halt       - Stop all CPU execution safely\n\n");
+
+        printf("  ps         - List all active kernel threads/processes\n");
+        printf("  pkill <id> - Terminate a thread by ID or Name\n\n");
+
+        printf("  ls <path>  - List directory contents\n");
+        printf("  cd <path>  - Change current working directory\n");
+        printf("  cat <file> - Print file contents to standard output\n");
+        printf("  touch <f>  - Create a new empty file\n");
+        printf("  rm <f>     - Deletes a file\n");
+        printf("  mkdir <d>  - Create a new directory\n");
+        printf("  echo <msg> - Print text or arguments to screen\n");
+
+        printf("\nTip: Press [TAB] for autocompletion and [UP/DOWN] for history.\n");
+    }
+}
+
+
+
+static void resolve_path(char* out, const char* arg) 
+{
+    if (arg[0] == '/') strncpy(out, arg, 511);
+    else 
+    {
+        strncpy(out, current_working_directory, 511);
+        int len = strlen(out);
+        if (len > 0 && out[len-1] != '/') strcat(out, "/");
+        strcat(out, arg);
+    }
 }
 
 
@@ -137,10 +176,50 @@ static void cmd_clear()
  * cmd_echo: Writes a custom message to the screen.
  * Uses the printf (libc) function as __is_klib.
  */
-static void cmd_echo(const char* args)
+static void cmd_echo(const char* args) 
 {
-    if (args && args[0] != '\0') printf("%s\n", args);
-    else printf("\n");
+    if (!args || args[0] == '\0') {
+        printf("\n");
+        return;
+    }
+
+    char message[256];
+    char filename[128];
+    bool redirect = false;
+
+    const char* gt = strchr(args, '>');
+    if (gt) 
+    {
+        redirect = true;
+        size_t msg_len = gt - args;
+        strncpy(message, args, msg_len);
+        message[msg_len] = '\0';
+        
+        char* end = message + strlen(message) - 1;
+        while(end > message && isspace(*end)) *end-- = '\0';
+
+        const char* file_part = gt + 1;
+        while(isspace(*file_part)) file_part++;
+        strcpy(filename, file_part);
+    } 
+    else strcpy(message, args);
+    if (redirect) 
+    {
+        char full_path[512];
+        resolve_path(full_path, filename);
+
+        VFSNode* n = vfs_open(full_path);
+        if (!n) n = vfs_create(full_path, 0);
+
+        if (n) 
+        {
+            vfs_write(n, 0, strlen(message), (uint8_t*)message);
+            vfs_close(n);
+        } 
+        else printf("echo: error while creating file %s\n", filename);
+        
+    }
+    else printf("%s\n", message);
 }
 
 
@@ -438,21 +517,19 @@ static void cmd_dump(const char* args)
  */
 static void cmd_ls(const char* args) 
 {
-    char path[256];
+    VFSNode* dir = nullptr;
+    char path[512];
 
-    if (!args || args[0] == '\0') strcpy(path, "/");
-        
-    else if (args[0] != '/') 
+    if (!args || args[0] == '\0') 
+    { 
+        dir = (cwd_node) ? cwd_node : vfs_root;
+    }
+    else 
     {
-        path[0] = '/';
-        strcpy(path + 1, args);
-    } 
+        resolve_path(path, args);
+        dir = vfs_open(path);
+    }
 
-    else strcpy(path, args);
-        
-
-    VFSNode* dir = vfs_open(path);
-    
     if (dir) 
     {
         if (dir->type == VFS_DIRECTORY) 
@@ -465,34 +542,33 @@ static void cmd_ls(const char* args)
             
             printf("\n");
         } 
-
-        else printf("ls: '%s' is not a directory\n", path);
-        vfs_close(dir);
+        else printf("%s\n", args);
+        if (dir != cwd_node && dir != vfs_root) vfs_close(dir);
     } 
-
-    else printf("ls: cannot access '%s': No such directory\n", path);
-    
+    else printf("ls: cannot access '%s': No such file or directory\n", args);
 }
 
-
 /**
- * cmd_ls: Displays the contents of a file
+ * cmd_cat: Displays the contents of a file
  */
 static void cmd_cat(const char* args) 
 {
-    char path[256];
+    char path[512];
     if (!args || args[0] == '\0') 
     {
         printf("Usage: cat <filename>\n");
         return;
     }
 
-    if (args[0] != '/') 
+    if (args[0] == '/') strncpy(path, args, 511);
+    else
     {
-        path[0] = '/';
-        strcpy(path + 1, args);
-    } 
-    else strcpy(path, args);
+        strncpy(path, current_working_directory, 511);
+        
+        int len = strlen(path);
+        if (len > 0 && path[len-1] != '/') strcat(path, "/");
+        strcat(path, args);
+    }
     
     VFSNode* file = vfs_open(path);
     if (file) 
@@ -514,7 +590,6 @@ static void cmd_cat(const char* args)
         else printf("cat: %s: Is a directory\n", path);
         vfs_close(file);
     }
-
     else printf("cat: %s: No such file or directory\n", path);
 }
 
@@ -526,36 +601,133 @@ static void shell_tab_completion()
 {
     if (buffer_pos == 0) return;
 
-    const char* match = nullptr;
-    int matches_found = 0;
-
-    for (size_t i = 0; i < COMMAND_COUNT; i++) {
-        if (strncmp(input_buffer, command_list[i], buffer_pos) == 0) {
-            match = command_list[i];
-            matches_found++;
-        }
-    }
-
-    if (matches_found == 1)
+    input_buffer[buffer_pos] = '\0';
+    char* space_ptr = strchr(input_buffer, ' ');
+    
+    if (space_ptr == NULL) 
     {
-        const char* remaining = match + buffer_pos;
-        while (*remaining)
-        {
-            input_buffer[buffer_pos++] = *remaining;
-            printf("%c", *remaining);
-            remaining++;
-        }
-    }
+        const char* matches[COMMAND_COUNT];
+        int matches_found = 0;
 
-    else if (matches_found > 1) 
-    {
-        printf("\n");
         for (size_t i = 0; i < COMMAND_COUNT; i++) 
+        {
             if (strncmp(input_buffer, command_list[i], buffer_pos) == 0)
-                printf("%s  ", command_list[i]);
+                matches[matches_found++] = command_list[i];
+        }
+
+        if (matches_found == 1) 
+        {
+            const char* remaining = matches[0] + buffer_pos;
+            while (*remaining) 
+            {
+                input_buffer[buffer_pos++] = *remaining;
+                printf("%c", *remaining++);
+            }
+            input_buffer[buffer_pos++] = ' ';
+            printf(" ");
+        } 
+        else if (matches_found > 1) 
+        {
+            printf("\n");
+            for (int i = 0; i < matches_found; i++)
+                printf("%s  ", matches[i]);
+            
+            shell_prompt();
+            printf("%s", input_buffer);
+        }
+    }
+    else 
+    {
+        const char* file_part = space_ptr + 1;
+        while(*file_part == ' ') file_part++;
         
-        shell_prompt();
-        printf("%s", input_buffer);
+        char path_temp[256];
+        strncpy(path_temp, file_part, 255);
+        path_temp[255] = '\0';
+
+        char* last_slash = strrchr(path_temp, '/');
+        VFSNode* search_dir = (file_part[0] == '/') ? vfs_root : (cwd_node ? cwd_node : vfs_root);
+        const char* search_term = file_part;
+        bool should_close_dir = false;
+
+        if (last_slash) 
+        {
+            search_term = strrchr(file_part, '/') + 1;
+            
+            if (last_slash == path_temp) search_dir = vfs_root;
+            else 
+            {
+                *last_slash = '\0';
+                VFSNode* target = vfs_open(path_temp);
+                if (target && target->type == VFS_DIRECTORY) 
+                {
+                    search_dir = target;
+                    should_close_dir = true;
+                }
+                else 
+                {
+                    if (target) vfs_close(target);
+                    return;
+                }
+            }
+        }
+
+        int part_len = strlen(search_term);
+        char matched_names[64][128];
+        uint8_t file_types[64];
+        int f_matches_found = 0;
+        uint32_t i = 0;
+        vfs_dirent* de;
+        
+        while ((de = vfs_readdir(search_dir, i++)) && f_matches_found < 64) 
+        {
+            if (strncmp(search_term, de->name, part_len) == 0) 
+            {
+                strcpy(matched_names[f_matches_found], de->name);
+                file_types[f_matches_found] = de->type;
+                f_matches_found++;
+            }
+        }
+
+        if (f_matches_found == 1) 
+        {
+            for(int j = 0; j < part_len; j++) 
+            {
+                printf("\b \b");
+                buffer_pos--;
+            }
+
+            const char* completion = matched_names[0];
+            while (*completion) 
+            {
+                input_buffer[buffer_pos++] = *completion;
+                printf("%c", *completion++);
+            }
+
+            if (file_types[0] == VFS_DIRECTORY) 
+            {
+                input_buffer[buffer_pos++] = '/';
+                printf("/");
+            }
+            else 
+            {
+                input_buffer[buffer_pos++] = ' ';
+                printf(" ");
+            }
+        }
+        else if (f_matches_found > 1) 
+        {
+            printf("\n");
+            for (int j = 0; j < f_matches_found; j++) 
+            {
+                if (file_types[j] == VFS_DIRECTORY) terminal_setcolor(vga_color_t(VGA_COLOR_LIGHT_BLUE, VGA_COLOR_BLACK));
+                printf("%s%s  ", matched_names[j], (file_types[j] == VFS_DIRECTORY ? "/" : ""));
+                terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
+            }
+            shell_prompt();
+            printf("%s", input_buffer);
+        }
+        if (should_close_dir && search_dir != vfs_root && search_dir != cwd_node) vfs_close(search_dir);
     }
 }
 
@@ -583,11 +755,107 @@ static void cmd_ps()
 
 
 /**
+ * cmd_cd: Changes the directory to the requested
+ */
+static void cmd_cd(const char* args) 
+{
+    if (!args || args[0] == '\0' || strcmp(args, "~") == 0) 
+    {
+        if (cwd_node && cwd_node != vfs_root) vfs_close(cwd_node);
+        cwd_node = vfs_root;
+        strcpy(current_working_directory, "/");
+        return;
+    }
+
+    char path[512];
+    resolve_path(path, args);
+
+    VFSNode* new_dir = vfs_open(path);
+    if (new_dir) 
+    {
+        if (new_dir->type == VFS_DIRECTORY) 
+        {
+            if (cwd_node && cwd_node != vfs_root) vfs_close(cwd_node);
+            cwd_node = new_dir;
+
+            if (strcmp(args, "..") == 0) 
+            {
+                if (strcmp(current_working_directory, "/") != 0) 
+                {
+                    char* last = strrchr(current_working_directory, '/');
+                    if (last == current_working_directory) strcpy(current_working_directory, "/");
+                    else if (last) *last = '\0';
+                }
+            } 
+            else if (strcmp(args, ".") == 0) {}
+            else strncpy(current_working_directory, path, 255);
+        } 
+        else 
+        {
+            printf("cd: %s: Not a directory\n", args);
+            vfs_close(new_dir);
+        }
+    } 
+    else printf("cd: %s: No such file or directory\n", args);
+}
+
+/**
+ * cmd_mkdir: Creates a directory
+ */
+static void cmd_mkdir(const char* args) 
+{
+    if (!args || args[0] == '\0') 
+    {
+        printf("mkdir: missing operand\n");
+        return;
+    }
+
+    char full_path[512];
+    resolve_path(full_path, args);
+
+    if (vfs_mkdir(full_path, 0755) != 0) printf("mkdir: cannot create directory '%s'\n", args);
+}
+
+/**
+ * cmd_touch: Creates a file
+ */
+static void cmd_touch(const char* args) 
+{
+    if (!args || args[0] == '\0') 
+    {
+        printf("touch: missing file operand\n");
+        return;
+    }
+
+    char full_path[512];
+    resolve_path(full_path, args);
+
+    VFSNode* n = vfs_create(full_path, 0); 
+    if (n) vfs_close(n);
+    else printf("touch: cannot create '%s'\n", args);
+}
+
+/**
+ * cmd_rm: Removes a file or directory
+ */
+static void cmd_rm(const char* args) 
+{
+    if (!args || args[0] == '\0') 
+    {
+        printf("rm: missing operand\n");
+        return;
+    }
+
+    char full_path[512];
+    resolve_path(full_path, args);
+    if (!vfs_unlink(full_path)) printf("rm: cannot remove '%s': No such file or directory\n", args);
+}
+
+/**
  * shell_execute: Parses the input string and calls the corresponding function
  */
 void shell_execute(const char* command) 
 {
-    
     while (*command == ' ') command++;
     if (strlen(command) == 0) return; 
     
@@ -597,15 +865,25 @@ void shell_execute(const char* command)
     
     while (*args && *args != ' ' && i < 31) 
         cmd[i++] = *args++;
-
     cmd[i] = '\0';
-    
     
     while (*args == ' ') args++;
 
-    if (strcmp(cmd, "help") == 0)		 		cmd_help(args);
+    char args_buffer[256];
+    strncpy(args_buffer, args, 255);
+    args_buffer[255] = '\0';
+
+    int len = strlen(args_buffer);
+    while (len > 0 && (args_buffer[len-1] == ' ' || args_buffer[len-1] == '\t' || args_buffer[len-1] == '\r')) {
+        args_buffer[len-1] = '\0';
+        len--;
+    }
+
+    const char* clean_args = args_buffer;
+
+    if (strcmp(cmd, "help") == 0)		 		cmd_help(clean_args);
     else if (strcmp(cmd, "clear") == 0) 		cmd_clear();
-    else if (strcmp(cmd, "echo") == 0) 			cmd_echo(args);
+    else if (strcmp(cmd, "echo") == 0) 			cmd_echo(clean_args);
 	else if (strcmp(cmd, "info") == 0) 			cmd_info();
     else if (strcmp(cmd, "testheap") == 0) 		cmd_testheap();
     else if (strcmp(cmd, "meminfo") == 0) 		cmd_meminfo();
@@ -614,12 +892,16 @@ void shell_execute(const char* command)
     else if (strcmp(cmd, "paginginfo") == 0) 	cmd_paginginfo();
 	else if (strcmp(cmd, "testpaging") == 0) 	cmd_testpaging();
     else if (strcmp(cmd, "memstat") == 0)       cmd_memstat();
-    else if (strcmp(cmd, "dump") == 0)          cmd_dump(args);
+    else if (strcmp(cmd, "dump") == 0)          cmd_dump(clean_args);
     else if (strcmp(cmd, "uptime") == 0)        cmd_uptime();
     else if (strcmp(cmd, "ps") == 0)            cmd_ps();
-    else if (strcmp(cmd, "pkill") == 0)         cmd_pkill(args);
-    else if (strcmp(cmd, "ls") == 0)            cmd_ls(args);
-    else if (strcmp(cmd, "cat") == 0)            cmd_cat(args);
+    else if (strcmp(cmd, "pkill") == 0)         cmd_pkill(clean_args);
+    else if (strcmp(cmd, "ls") == 0)            cmd_ls(clean_args);
+    else if (strcmp(cmd, "cat") == 0)           cmd_cat(clean_args);
+    else if (strcmp(cmd, "cd") == 0)            cmd_cd(clean_args);
+    else if (strcmp(cmd, "touch") == 0)         cmd_touch(clean_args);
+    else if (strcmp(cmd, "mkdir") == 0)         cmd_mkdir(clean_args);
+    else if (strcmp(cmd, "rm") == 0)            cmd_rm(clean_args); 
 
 	else printf("Unknown command: %s\nType 'help' for available commands", command);
     terminal_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
@@ -634,47 +916,49 @@ void shell_run()
 {
     shell_prompt();
     
-    static char history[MAX_HISTORY][SHELL_BUFFER_SIZE];
-    static int history_count = 0;
-    static int history_index = -1;
-    
-    
     while (true) 
 	{
         char c = keyboard_getchar();
         if (c == 0) continue;
-        
+
         if (c == '\n') 
-		{    
+        {
             printf("\n");
             input_buffer[buffer_pos] = '\0';
-            
+
             if (buffer_pos > 0) 
             {
-                for (int i = MAX_HISTORY - 1; i > 0; i--) 
-                strcpy(history[i], history[i-1]);
-                
-                strcpy(history[0], input_buffer);
-                if (history_count < MAX_HISTORY) history_count++;
+                if (history_count == 0 || strcmp(input_buffer, history[0]) != 0) 
+                {
+                    for (int i = MAX_HISTORY - 1; i > 0; i--)
+                        memcpy(history[i], history[i-1], SHELL_BUFFER_SIZE);
+
+                    strcpy(history[0], input_buffer);
+                    if (history_count < MAX_HISTORY) history_count++;
+                }
+                shell_execute(input_buffer);
             }
-            
-            shell_execute(input_buffer);
-            
             buffer_pos = 0;
             history_index = -1;
-            memset(input_buffer, 0, SHELL_BUFFER_SIZE);
             shell_prompt();
         }
 
 		else if (c == '\b') 
-		{    
+        {    
             if (buffer_pos > 0) 
-			{
+            {
                 buffer_pos--;
                 input_buffer[buffer_pos] = '\0';
-                terminal_putchar('\b');
+                
+                serial_putc('\b');
+                serial_putc(' ');
+                serial_putc('\b');
+                
+                putchar('\b');
+                putchar(' ');
+                putchar('\b');
             }
-        } 
+        }
 
         else if (c == '\t') shell_tab_completion();
 		
@@ -684,13 +968,16 @@ void shell_run()
             printf("%c", c);
         }
 
-       else if (c == KEY_UP) 
+        else if (c == KEY_UP) 
         {
             if (history_count > 0 && history_index < history_count - 1) 
             {
                 history_index++;
-                while (buffer_pos > 0) { terminal_putchar('\b'); buffer_pos--; }
-                
+                while (buffer_pos > 0) 
+                {
+                    printf("\b \b");
+                    buffer_pos--;
+                }
                 strcpy(input_buffer, history[history_index]);
                 buffer_pos = strlen(input_buffer);
                 printf("%s", input_buffer);
@@ -702,18 +989,17 @@ void shell_run()
             if (history_index > 0) 
             {
                 history_index--;
-                while (buffer_pos > 0) { terminal_putchar('\b'); buffer_pos--; }
+                while (buffer_pos > 0) { printf("\b \b"); buffer_pos--; }
                 
                 strcpy(input_buffer, history[history_index]);
                 buffer_pos = strlen(input_buffer);
                 printf("%s", input_buffer);
             }
-
             else if (history_index == 0) 
             {
                 history_index = -1;
-                while (buffer_pos > 0) { terminal_putchar('\b'); buffer_pos--; }
-                memset(input_buffer, 0, SHELL_BUFFER_SIZE);
+                while (buffer_pos > 0) { printf("\b \b"); buffer_pos--; }
+                input_buffer[0] = '\0';
             }
         }
     }

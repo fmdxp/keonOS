@@ -38,9 +38,12 @@
 #include <fs/vfs.h>
 #include <fs/ramfs.h>
 #include <fs/vfs_node.h>
+#include <fs/fat32_vfs.h>
 #include <fs/ramfs_vfs.h>
+#include <fs/fat32_structs.h>
 
 #include <drivers/vga.h>
+#include <drivers/ata.h>
 #include <drivers/timer.h>
 #include <drivers/serial.h>
 #include <drivers/speaker.h>
@@ -51,8 +54,43 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern "C" char _kernel_end;
 
-extern "C" uint32_t _kernel_end;
+void init_file_system(void* ramdisk_vaddr) 
+{
+    vfs_init();
+    RootFS* root = (RootFS*)vfs_root;
+
+    SimpleDirectory* dev_dir = new SimpleDirectory("dev");
+    root->register_node(dev_dir);
+    
+    DeviceNode* disk = new DeviceNode("keon_disk");
+    dev_dir->size = 64 * 1024 * 1024;
+    dev_dir->add_child(disk);
+
+    SimpleDirectory* mnt_dir = new SimpleDirectory("mnt");
+    root->register_node(mnt_dir);
+
+    uint32_t fat_lba = fat32_inst.find_fat32_partition();
+    if (fat_lba != 0) 
+    {
+        fat32_inst.init(fat_lba);
+        
+        FAT32_Directory* fat_root = new FAT32_Directory("fat32", 
+                                       fat32_inst.bpb.root_cluster, 
+                                       &fat32_inst.bpb);
+        
+        mnt_dir->add_child(fat_root);
+        printf("[FAT32] Hardware partition mounted in /mnt/fat32\n");
+    }
+
+    if (ramdisk_vaddr != nullptr) 
+    {
+        KeonFS_MountNode* ramfs_ptr = new KeonFS_MountNode("initrd", ramdisk_vaddr);
+        root->register_node(ramfs_ptr);
+        printf("[RAMFS] Ramdisk loaded in /initrd\n");
+    }
+}
 
 extern "C" void kernel_main([[maybe_unused]] uint64_t magic, uint64_t multiboot_phys_addr)
 {
@@ -102,13 +140,16 @@ extern "C" void kernel_main([[maybe_unused]] uint64_t magic, uint64_t multiboot_
 	pfa_init_from_multiboot2((void*)multiboot_virt_addr);
 	paging_init();	
 
+	VMM::kernel_dynamic_break = ((uintptr_t)&_kernel_end + 0xFFF) & ~0xFFF;
+	VMM::kernel_dynamic_break += 0x10000;
+	
+	printf("[VMM] Kernel end: %p, Heap start: %p\n", &_kernel_end, VMM::kernel_dynamic_break);
 	void* heap_start = (void*)VMM::kernel_dynamic_break;
     uintptr_t initial_heap_size = 4 * 1024 * 1024;
 		
 	VMM::sbrk(initial_heap_size);
-	kheap_init(heap_start, initial_heap_size);
-
-
+    kheap_init(heap_start, initial_heap_size);
+    
 	
 	// 4. Subsystem Initialization
 	timer_init(100);
@@ -136,12 +177,7 @@ extern "C" void kernel_main([[maybe_unused]] uint64_t magic, uint64_t multiboot_
             panic(KernelError::K_ERR_RAMFS_MAGIC_FAILED, "RAMFS not found or wrong magic");
     }
 
-	vfs_init();
-	if (ramdisk_vaddr != nullptr) 
-    {
-        KeonFS_MountNode* ramfs_ptr = new KeonFS_MountNode("initrd", ramdisk_vaddr);
-        vfs_mount(ramfs_ptr);
-    }
+	init_file_system(ramdisk_vaddr);
 		
 
 	// Re-enable interrupts after safe hardware/memory setup

@@ -44,6 +44,9 @@ extern kernel_main
 global multiboot_magic
 global multiboot_info_ptr
 
+extern _stack_top
+extern _stack_bottom
+
 
 VM_OFFSET       equ 0xFFFFFFFF80000000
 
@@ -51,7 +54,7 @@ _start:
     mov esi, ebx
     mov edi, eax
 
-	mov esp, (stack_top - VM_OFFSET)
+	mov esp, (_stack_top - VM_OFFSET)
 
 	mov eax, pdpt_table - VM_OFFSET
     or eax, 0b11
@@ -108,7 +111,7 @@ long_mode_high:
     mov fs, ax
     mov gs, ax
 
-    mov rsp, stack_top
+    mov rsp, _stack_top
     sub rsp, 8
     
     mov rdi, rdi
@@ -129,11 +132,10 @@ align 4096
 pml4_table: resb 4096
 pdpt_table: resb 4096
 pd_table:   resb 4096
-stack_bottom: resb 65536
-stack_top:
 
 multiboot_magic:    resd 1
 multiboot_info_ptr: resq 1
+
 
 section .rodata
 gdt64:

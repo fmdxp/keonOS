@@ -25,7 +25,7 @@
 
 #define OS_NAME				"keonOS"
 #define OS_VERSION_MAJOR	"0"
-#define OS_VERSION_MINOR	"3"
+#define OS_VERSION_MINOR	"4"
 #define OS_VERSION_PATCH	" "			// Uses letters
 
 #define OS_VERSION_STRING 			OS_NAME " v" OS_VERSION_MAJOR "." OS_VERSION_MINOR OS_VERSION_PATCH
@@ -122,6 +122,19 @@
 
 #define THREAD_NOT_FOUND (uint32_t)-1
 #define THREAD_AMBIGUOUS (uint32_t)-2
+
+
+
+// ATA CONSTANTS
+
+#define ATA_PRIMARY_DATA         0x1F0
+#define ATA_PRIMARY_ERR          0x1F1
+#define ATA_PRIMARY_SECCOUNT     0x1F2
+#define ATA_PRIMARY_LBA_LOW      0x1F3
+#define ATA_PRIMARY_LBA_MID      0x1F4
+#define ATA_PRIMARY_LBA_HIGH     0x1F5
+#define ATA_PRIMARY_DRIVE_SEL    0x1F6
+#define ATA_PRIMARY_COMM_STAT    0x1F7
 
 
 

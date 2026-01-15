@@ -139,6 +139,14 @@ extern "C" void keyboard_handler()
         case 0x3A:
             caps_lock = !caps_lock;
             return;
+
+        case 0x48:
+            ascii = KEY_UP; 
+            break;
+
+        case 0x50:
+            ascii = KEY_DOWN;
+            break;
         
         case 0x0E:
             ascii = '\b';
@@ -150,14 +158,12 @@ extern "C" void keyboard_handler()
                 ascii = scancode_to_ascii[scancode];
                 if (ascii >= 'a' && ascii <= 'z')
                 {
-                    if (ascii >= 'a' && ascii <= 'z')
-                    {
-                        if (shift_pressed ^ caps_lock) ascii -= 32;
-                    }
-                    
-                    else if (shift_pressed) 
-                        ascii = get_shift_variant(ascii);
+                    if (shift_pressed ^ caps_lock) ascii -= 32;
                 }   
+                
+                else if (shift_pressed) 
+                    ascii = get_shift_variant(ascii);
+                  
             }
             break;
     }

@@ -1,5 +1,5 @@
 /*
- * keonOS - drivers/serial.cpp
+ * keonOS - libc/string/strrchr.cpp
  * Copyright (C) 2025-2026 fmdxp
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,47 +18,19 @@
  * See the GNU General Public License for more details.
  */
 
+#include <string.h>
 
-#include <kernel/arch/x86_64/idt.h>
-#include <kernel/constants.h>
-#include <drivers/serial.h>
-
-
-void serial_install() 
+char* strrchr(const char* s, int c) 
 {
-    outb(COM1 + 1, 0x00);
-    outb(COM1 + 3, 0x80);
-    outb(COM1 + 0, 0x03);
-    outb(COM1 + 1, 0x00);
-    outb(COM1 + 3, 0x03);
-    outb(COM1 + 2, 0xC7);
-    outb(COM1 + 4, 0x0B);
-}
+    char* last = nullptr;
+    char target = (char)c;
 
-int is_transmit_empty() 
-{
-    return inb(COM1 + 5) & 0x20;
-}
-
-void write_serial(char a) 
-{
-    while (is_transmit_empty() == 0);
-    outb(COM1, a);
-}
-
-void serial_putc(char c) 
-{
-    if (c == '\n') 
-    {
-        write_serial('\r');
-        write_serial('\n');
+    while (*s != '\0') 
+	{
+        if (*s == target) last = (char*)s;
+        s++;
     }
-    else if (c == '\b') 
-    {
-        write_serial('\b');
-        write_serial(' ');
-        write_serial('\b');
-    } 
-    else write_serial(c);
-    
+
+    if (target == '\0') return (char*)s;
+    return last;
 }

@@ -78,7 +78,7 @@ SECTIONS
 	.stack ALIGN(4K) : AT(ADDR(.stack) - KERNEL_OFFSET)
 	{
 		_stack_bottom = .;
-		. += 16K;
+		. += 64K;
 		_stack_top = .;
 	}
 

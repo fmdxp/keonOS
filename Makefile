@@ -28,6 +28,7 @@ ARCH_TO_COMPILE = x86_64
 CFLAGS = -m64 -march=x86-64 -ffreestanding -O2 -Wall -Wextra  \
 		 -fno-exceptions -fno-rtti -fno-pic -fno-pie \
 		 -fno-stack-protector -mno-stack-arg-probe \
+		 -fno-use-cxa-atexit \
 		 -mno-red-zone -mno-mmx -mno-sse \
 		 -mcmodel=kernel \
 		 -I$(INCLUDE_DIR) -I$(LIBC_INCLUDE) -D__is_libk \
@@ -37,22 +38,24 @@ ASMFLAGS = -felf64
 LDFLAGS = -T linker.ld -m elf_x86_64 -no-pie
 
 BOOT_DIR = boot
-PACKER = scripts/pack_keonfs.py
-INITRD_SRC = initrd
-INITRD_IMG = initrd.img
-KERNEL_DIR = kernel
-ARCH_DIR = kernel/arch
 INCLUDE_DIR = include
 LIBC_INCLUDE = include/libc
 LIBC_DIR = libc
 DRIVERS_DIR = drivers
 BUILD_DIR = build
+KERNEL_DIR = kernel
+ARCH_DIR = kernel/arch
 MM_DIR = mm
 FS_DIR = fs
 PROC_DIR = proc
 ISO_DIR	= iso
+SCRIPTS_DIR = scripts
+INITRD_SRC = initrd
+INITRD_IMG = initrd.img
 ISO_IMG = keonOS.iso
 GRUB_CFG = $(ISO_DIR)/boot/grub/grub.cfg
+HDA_IMG = harddisk.img
+HDA_SIZE = 64
 
 
 SRC_C = $(wildcard $(KERNEL_DIR)/*.cpp) $(wildcard $(FS_DIR)/*.cpp) $(wildcard $(LIBC_DIR)/*/*.cpp) $(wildcard $(DRIVERS_DIR)/*.cpp) $(wildcard $(ARCH_DIR)/$(ARCH_TO_COMPILE)/*.cpp) $(wildcard $(MM_DIR)/*.cpp) $(wildcard $(PROC_DIR)/*.cpp) 
@@ -99,21 +102,33 @@ $(GRUB_CFG):
 $(INITRD_IMG): $(INITRD_SRC)
 	@mkdir -p $(ISO_DIR)/boot
 	@echo "Packing RamFS (keonFS)..."
-	@$(PYTHON) $(PACKER)
+	@$(PYTHON) $(SCRIPTS_DIR)/pack_keonfs.py
+
+$(HDA_IMG):
+	@echo "Creating FAT32 Hard Disk image..."
+	@dd if=/dev/zero of=$(HDA_IMG) bs=1M count=$(HDA_SIZE) 2>/dev/null
+	@parted -s $(HDA_IMG) mklabel msdos
+	@parted -s $(HDA_IMG) mkpart primary fat32 1MiB 100%
+	@mformat -i $(HDA_IMG)@@1M -F -v "KEONOS" ::
+	@echo "Welcome to keonOS v0.4-alpha! Type 'help' to start exploring" > temp_readme.txt
+	@mcopy -i $(HDA_IMG)@@1M temp_readme.txt ::/readme.txt
+	@rm temp_readme.txt
+	@echo "Hard disk created."
 
 
 iso: $(ISO_DIR)/boot/kernel.bin $(GRUB_CFG) $(INITRD_IMG)
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
 	@echo "Created iso file: $(ISO_IMG)"
 
-run: $(ISO_IMG)
+run: $(ISO_IMG) $(HDA_IMG)
  
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -serial stdio -m 512M -boot d -machine acpi=off -d int,cpu_reset -D qemu.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(HDA_IMG) -serial stdio -m 512M -boot d -machine acpi=off -d int,cpu_reset -D qemu.log
 
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf $(ISO_DIR)
 	rm -rf $(ISO_IMG)
+	rm -rf $(HDA_IMG)
 	rm -rf qemu.log
 
 .PHONY: all clean iso run

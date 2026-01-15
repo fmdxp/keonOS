@@ -34,6 +34,7 @@
 #error "keonOS needs to be compiled with a x86-elf (cross-)compiler. Aborting..."
 #endif
 
+void init_file_system(void* ramdisk_vaddr);
 extern "C" void kernel_main(uint64_t magic, uint64_t multiboot_phys_addr);
 
 #endif		// KERNEL_H

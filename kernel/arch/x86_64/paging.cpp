@@ -248,5 +248,5 @@ void paging_init()
     for (uintptr_t p = 0; p < 512 * 1024 * 1024; p += PAGE_SIZE)
         paging_map_page(phys_to_virt(p), (void*)p, PTE_PRESENT | PTE_RW);
 
-    printf("Paging x86_64: Physic PML4 at 0x%lx\n", cr3 & ~0xFFFULL);
+    printf("[PAGING] Physic PML4 at 0x%lx\n", cr3 & ~0xFFFULL);
 }

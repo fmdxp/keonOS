@@ -1,5 +1,5 @@
 /*
- * keonOS - drivers/serial.cpp
+ * keonOS - include/drivers/ata.h
  * Copyright (C) 2025-2026 fmdxp
  *
  * This program is free software: you can redistribute it and/or modify
@@ -19,46 +19,16 @@
  */
 
 
-#include <kernel/arch/x86_64/idt.h>
-#include <kernel/constants.h>
-#include <drivers/serial.h>
+#pragma once
+#include <stdint.h>
 
-
-void serial_install() 
+class ATADriver 
 {
-    outb(COM1 + 1, 0x00);
-    outb(COM1 + 3, 0x80);
-    outb(COM1 + 0, 0x03);
-    outb(COM1 + 1, 0x00);
-    outb(COM1 + 3, 0x03);
-    outb(COM1 + 2, 0xC7);
-    outb(COM1 + 4, 0x0B);
-}
+public:
+    static void read_sectors(uint32_t lba, uint8_t count, uint8_t* buffer);
+    static void write_sectors(uint32_t lba, uint8_t count, uint8_t* buffer);
 
-int is_transmit_empty() 
-{
-    return inb(COM1 + 5) & 0x20;
-}
-
-void write_serial(char a) 
-{
-    while (is_transmit_empty() == 0);
-    outb(COM1, a);
-}
-
-void serial_putc(char c) 
-{
-    if (c == '\n') 
-    {
-        write_serial('\r');
-        write_serial('\n');
-    }
-    else if (c == '\b') 
-    {
-        write_serial('\b');
-        write_serial(' ');
-        write_serial('\b');
-    } 
-    else write_serial(c);
-    
-}
+private:
+    static void wait_bsy();
+    static void wait_drq();
+};

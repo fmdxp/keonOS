@@ -30,6 +30,7 @@ struct vfs_dirent
 {
     char name[128];
     uint32_t inode;
+    uint32_t type;
 };
 
 class VFSNode 
@@ -39,19 +40,24 @@ public:
     uint32_t type;
     uint32_t size;
     uint32_t inode;
+    uint32_t ref_count;
+    VFSNode* parent;
 
-    VFSNode() : type(0), size(0), inode(0) 
-	{ 
-		name[0] = '\0'; 
-	}
+    VFSNode() : type(0), size(0), inode(0), ref_count(0), parent(nullptr)
+    { 
+        name[0] = '\0'; 
+    }
     virtual ~VFSNode() {}
 
     virtual uint32_t read(uint32_t offset, uint32_t size, uint8_t* buffer) = 0;
     virtual uint32_t write([[maybe_unused]] uint32_t offset, [[maybe_unused]] uint32_t size, [[maybe_unused]] uint8_t* buffer) { return 0; }
     virtual void open() = 0;
     virtual void close() = 0;
+    virtual bool unlink([[maybe_unused]] const char* name) { return false; }
     virtual vfs_dirent* readdir([[maybe_unused]] uint32_t index) { return nullptr; }
     virtual VFSNode* finddir([[maybe_unused]] const char* name) { return nullptr; }
+    virtual VFSNode* create([[maybe_unused]] const char* name, [[maybe_unused]] uint32_t flags) { return nullptr; }
+    virtual int mkdir([[maybe_unused]] const char* name, [[maybe_unused]] uint32_t mode) { return -1; }
 };
 
 class RootFS : public VFSNode 
@@ -68,26 +74,40 @@ public:
         memset(mounts, 0, sizeof(mounts));
         strcpy(name, "/");
         type = VFS_DIRECTORY;
+        ref_count = 1;
+        inode = 0;
+        size = 0;
+        parent = this;
     }
+
+    void open() override { ref_count++; }
+    void close() override {  if (ref_count > 0) ref_count--; }
 
 	
     void register_node(VFSNode* node) 
-	{
-        if (mount_count < 32) mounts[mount_count++] = node;
+    {
+        if (mount_count < 32) 
+        {
+            mounts[mount_count++] = node;
+            node->parent = this;
+        }
     }
 
 
     uint32_t read(uint32_t, uint32_t, uint8_t*) override { return 0; }
-    void open() override {}
-    void close() override {}
-
 
     VFSNode* finddir(const char* name) override 
     {
+        if (!name || name[0] == '\0' || strcmp(name, "/") == 0)
+            return this;
+
         for (uint32_t i = 0; i < mount_count; i++) 
         {
-            if (strcmp(mounts[i]->name, name) == 0)
+            if (strcmp(mounts[i]->name, name) == 0) 
+            {
+                mounts[i]->parent = this;
                 return mounts[i];
+            }
         }
         return nullptr;
     }
@@ -100,10 +120,76 @@ public:
         {
             strcpy(de.name, mounts[index]->name);
             de.inode = index;
+            de.type = mounts[index]->type;
             return &de;
         }
         return nullptr;
     }
 };
 
-#endif
+class DeviceNode : public VFSNode 
+{
+public:
+    DeviceNode(const char* name) 
+    {
+        strncpy(this->name, name, 127);
+        this->type = VFS_DEVICE;
+        this->size = 64 * 1024 * 1024;
+    }
+
+    void open() override { ref_count++; }
+    void close() override { if (ref_count > 0) ref_count--; }
+    
+    vfs_dirent* readdir(uint32_t) override { return nullptr; }
+    VFSNode* finddir(const char*) override { return nullptr; }
+
+    uint32_t read(uint32_t offset, uint32_t size, uint8_t* buffer) override;
+};
+
+
+class SimpleDirectory : public VFSNode 
+{
+private:
+    VFSNode* children[32];
+    uint32_t child_count = 0;
+public:
+    SimpleDirectory(const char* n) 
+    {
+        strncpy(this->name, n, 127);
+        this->type = VFS_DIRECTORY;
+        memset(children, 0, sizeof(children));
+    }
+    
+    void add_child(VFSNode* node) 
+    {
+        if (child_count < 16) children[child_count++] = node;
+    }
+
+    VFSNode* finddir(const char* name) override 
+    {
+        for (uint32_t i = 0; i < child_count; i++) 
+        {
+            if (strcmp(children[i]->name, name) == 0) return children[i];
+        }
+        return nullptr;
+    }
+
+    vfs_dirent* readdir(uint32_t index) override 
+    {
+        static vfs_dirent de;
+        if (index < child_count) 
+        {
+            strcpy(de.name, children[index]->name);
+            de.type = children[index]->type;
+            de.inode = index;
+            return &de;
+        }
+        return nullptr;
+    }
+
+    void open() override { ref_count++; }
+    void close() override { ref_count--; }
+    uint32_t read(uint32_t, uint32_t, uint8_t*) override { return 0; }
+};
+
+#endif      // VFS_NODE

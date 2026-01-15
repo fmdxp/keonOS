@@ -186,7 +186,7 @@ void thread_sleep(uint32_t ms)
 thread_t* thread_create(void (*entry_point)(), const char* name) 
 {
     thread_t* t = (thread_t*)kmalloc(sizeof(thread_t));
-    uint64_t* stack = (uint64_t*)kmalloc(8192);
+    uint64_t* stack = (uint64_t*)kmalloc(16384);
     
     if (!stack || !t) return nullptr;
     
@@ -199,7 +199,7 @@ thread_t* thread_create(void (*entry_point)(), const char* name)
     if (name) strncpy(t->name, name, 15);
     else strcpy(t->name, "unk");
     
-    uint64_t* stack_ptr = (uint64_t*)((uintptr_t)stack + 8192);
+    uint64_t* stack_ptr = (uint64_t*)((uintptr_t)stack + 16384);
 
     *(--stack_ptr) = (uint64_t)thread_exit; 
     *(--stack_ptr) = (uint64_t)entry_point;

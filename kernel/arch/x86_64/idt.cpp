@@ -40,6 +40,18 @@ extern "C" uint8_t inb(uint16_t port)
     return ret;
 }
 
+extern "C" void outw(uint16_t port, uint16_t value) 
+{
+    asm volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
+}
+
+extern "C" uint16_t inw(uint16_t port) 
+{
+    uint16_t ret;
+    asm volatile ("inw %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
 
 void idt_set_gate(uint8_t num, uint64_t base, uint16_t selector, uint8_t flags) 
 {
