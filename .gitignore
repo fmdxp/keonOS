@@ -8,11 +8,15 @@
 *.bin
 *.iso
 *.img
+*.kex
+*.kdl
+*.klb
 
 # Build directories
 iso/
 build/
 cross/
+initrd/
 
 # --- Emulator & Debugging ---
 

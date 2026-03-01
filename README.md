@@ -6,18 +6,22 @@ A monolithic **64-bit x86_64 operating system** built from scratch in **C++ and 
 
 ## 🏗️ Architecture & Core Features
 
-### 🧠 Advanced Memory Management
-- **Higher Half Kernel:** Kernel mapped in the higher half (`0xC0000000+`) with clean separation between kernel and future user space.
-- **Long Mode Paging:** Fully adapted paging and memory layout for **x86_64 long mode**.
+### 🧠 Core Architecture & Isolation
+- **Higher Half Kernel:** Kernel mapped in the higher half (`0xC0000000+`) with hardware-enforced Ring 0 / Ring 3 privilege separation.
+- **x86_64 Long Mode Paging:** Fully adapted paging and memory layout tailored for 64-bit user-space process isolation.
 - **Custom VMM & PFA:** Physical Frame Allocator and Virtual Memory Manager with structured virtual address handling.
-- **Kernel Heap:** Dynamic memory management with `kmalloc`, `kfree`, and native C++ `new` / `delete`.
+- **User-Mode Execution:** Secure transition mechanics and isolated contexts to run user applications entirely in Ring 3.
 
-### 🎭 Multitasking & Thread Management
-- **Cooperative Multitasking:** Round-robin scheduler for kernel threads.
-- **Thread Lifecycle Tracking:** Proper thread termination with **zombie state handling**.
-- **Return Codes:** Threads can exit with a return status, preserved for post-execution inspection.
-- **Expanded Kernel Stack:** Each kernel thread uses a **64 KB stack**, improving reliability under deep call paths.
-- **Post-Mortem Debugging:** Kernel panic system with register dump and stack inspection (64-bit aware).
+### 🎭 Multitasking & Process Model
+- **Hybrid Task Management:** Round-robin scheduler supporting both isolated user-mode processes and kernel threads.
+- **Thread Lifecycle & Zombie Handling:** Proper thread termination and return status preservation.
+- **Syscall ABI:** Expanding system call interface (`sys_mem`, `sys_proc`, `sys_stat`, file operations) for robust kernel/user interaction.
+- **Safe Returns:** Extended context switching logic (`switch.asm`) with dedicated kernel stacks for secure Ring 3 -> Ring 0 transitions.
+
+### 📦 Application Execution & Libc
+- **Keon Executable (KEX) Format:** Dedicated, dynamically-loadable binary format with an ELF-inspired kernel loader (`kex_loader`).
+- **Custom Libc:** A foundational user-space C standard library (`libc.klb`) featuring `stdio`, `stdlib`, `string`, `unistd`, and `sys/stat`.
+- **User-Space Tools:** Included application toolchain with `crt0` initialization and test suites like `klbtool`.
 
 ---
 
@@ -40,8 +44,9 @@ A monolithic **64-bit x86_64 operating system** built from scratch in **C++ and 
 
 ### 📂 Virtual File System (VFS) & Storage
 - **Unified VFS Layer:** An abstract interface that allows the system to interact with different file systems via standard operations like `vfs_open`, `vfs_read`, and `vfs_readdir`.
+- **Ext4 Filesystem Access:** Modern, robust disk-based filesystem integration (`ext4_vfs.cpp`) with foundational journaling components (`ext4_journal.cpp`).
 - **KeonFS (Ramdisk):** A custom RAM-based file system loaded as a Multiboot module. It supports packed file headers and linear scanning for fast resource access during boot.
-- **Mount System:** Support for mounting multiple file systems under a virtual root (`/`), enabling structured access to system resources (e.g., `/initrd`).
+- **Mount System:** Support for mounting multiple file systems under a virtual root (`/`), enabling structured access to system resources (e.g., `/initrd`, `/mnt`).
 
 ### 📚 Standard Library (libc)
 - **File I/O:** Implementation of standard C functions such as `fopen`, `fread`, `fclose`, and `fseek` to bridge the gap between user-level logic and the VFS.
