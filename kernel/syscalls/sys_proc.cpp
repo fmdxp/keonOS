@@ -21,14 +21,23 @@
 
 #include <kernel/arch/x86_64/thread.h>
 #include <kernel/syscalls/syscalls.h>
+#include <kernel/arch/x86_64/paging.h>
+#include <exec/kex_loader.h>
+#include <mm/heap.h>
 #include <drivers/timer.h>
 #include <drivers/vga.h>
 #include <drivers/keyboard.h>
 #include <stdio.h>
+#include <string.h>
 
 uint64_t sys_exit(uint64_t status, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) 
 {
     int exit_status = (int)status;
+    thread_t* current = thread_get_current();
+
+    if (current && current->is_user) 
+        asm volatile("swapgs");
+
     thread_exit(exit_status);
     __builtin_unreachable();
     return 0;
@@ -65,7 +74,8 @@ uint64_t sys_reboot(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
     outb(0xCF9, 0x06);
     
     // Triple fault (final fallback)
-    struct {
+    struct 
+    {
         uint16_t limit;
         uint32_t base;
     } __attribute__((packed)) invalid_idt = {0, 0};
@@ -75,4 +85,33 @@ uint64_t sys_reboot(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)
     
     while (1) asm volatile("hlt");
     return 0;
+}
+
+uint64_t sys_getpid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6) 
+{
+    (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6;
+    thread_t* current = thread_get_current();
+    if (!current) return -1;
+    return current->id;
+}
+
+uint64_t sys_sleep(uint64_t ms, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6) 
+{
+    (void)a2; (void)a3; (void)a4; (void)a5; (void)a6;
+    thread_sleep(ms);
+    return 0;
+}
+
+uint64_t sys_load_library(uint64_t path_ptr, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5; (void)a6;
+    
+    char path[256];
+    if (!copy_from_user(path, (const void*)path_ptr, 255)) return 0;
+    path[255] = '\0';
+    
+    thread_t* current = thread_get_current();
+    if (!current) return 0;
+
+    return (uint64_t)kdl_load(path, current);
 }

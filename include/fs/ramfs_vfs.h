@@ -87,6 +87,13 @@ public:
     
     void add_child(VFSNode* node);
     uint32_t read(uint32_t offset, uint32_t size, uint8_t* buffer) override;
+    
+    // Read-only filesystem - disable write operations
+    uint32_t write(uint32_t, uint32_t, uint8_t*) override { return 0; }
+    VFSNode* create(const char*, uint32_t) override { return nullptr; }
+    int mkdir(const char*, uint32_t) override { return -1; }
+    bool unlink(const char*) override { return false; }
+    
     void open() override {}
     void close() override {}
 };

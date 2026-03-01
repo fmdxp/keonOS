@@ -70,7 +70,13 @@ void syscall_table_init()
     syscall_table[5] = sys_uptime;
     syscall_table[6] = sys_unlink;
     syscall_table[7] = sys_readdir;
+    syscall_table[8] = sys_stat;
+    syscall_table[9] = sys_fstat;
+    syscall_table[10] = sys_getpid;
+    syscall_table[11] = sys_sleep;
     syscall_table[12] = sys_sbrk;
+    
+    syscall_table[20] = sys_load_library;
     syscall_table[37] = sys_kill;
     syscall_table[60] = sys_exit;
     syscall_table[100] = sys_vga;
@@ -99,7 +105,7 @@ extern void shell_run();
 void start_user_code() 
 {
     // Launch the shell in User Mode (Ring 3)
-    thread_add(shell_run, "shell", true);
+    thread_add(shell_run, "shell", false);
 
     // This setup thread has finished its job
     sys_exit(0, 0, 0, 0, 0, 0);

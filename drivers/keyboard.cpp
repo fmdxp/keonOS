@@ -147,6 +147,14 @@ extern "C" void keyboard_handler()
         case 0x50:
             ascii = KEY_DOWN;
             break;
+            
+        case 0x4B:
+            ascii = KEY_LEFT;
+            break;
+            
+        case 0x4D:
+            ascii = KEY_RIGHT;
+            break;
         
         case 0x0E:
             ascii = '\b';
@@ -161,7 +169,7 @@ extern "C" void keyboard_handler()
                     if (shift_pressed ^ caps_lock) ascii -= 32;
                 }   
                 
-                else if (shift_pressed) 
+                else if (shift_pressed)
                     ascii = get_shift_variant(ascii);
                   
             }

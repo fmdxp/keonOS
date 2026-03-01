@@ -192,4 +192,98 @@ public:
     uint32_t read(uint32_t, uint32_t, uint8_t*) override { return 0; }
 };
 
+
+class MountOverlayNode : public VFSNode 
+{
+private:
+    VFSNode* underlying;  // The underlying FAT32 directory
+    VFSNode* mounts[8];   // Mounted filesystems
+    char mount_names[8][128];
+    uint32_t mount_count;
+
+public:
+    MountOverlayNode(VFSNode* base) : underlying(base), mount_count(0)
+    {
+        memset(mounts, 0, sizeof(mounts));
+        memset(mount_names, 0, sizeof(mount_names));
+        
+        // Copy properties from underlying node
+        strncpy(this->name, base->name, 127);
+        this->type = base->type;
+        this->size = base->size;
+        this->inode = base->inode;
+        this->parent = base->parent;
+    }
+
+    void add_mount(const char* name, VFSNode* node) 
+    {
+        if (mount_count < 8) 
+        {
+            strncpy(mount_names[mount_count], name, 127);
+            mounts[mount_count] = node;
+            node->parent = this;
+            mount_count++;
+        }
+    }
+
+    VFSNode* finddir(const char* name) override 
+    {
+        // First check mounted filesystems
+        for (uint32_t i = 0; i < mount_count; i++) 
+        {
+            if (strcmp(mount_names[i], name) == 0) 
+            {
+                return mounts[i];
+            }
+        }
+        
+        // Then check underlying filesystem
+        return underlying->finddir(name);
+    }
+
+    vfs_dirent* readdir(uint32_t index) override 
+    {
+        // First list mounted filesystems
+        if (index < mount_count) 
+        {
+            static vfs_dirent de;
+            strcpy(de.name, mount_names[index]);
+            de.inode = index;
+            de.type = mounts[index]->type;
+            return &de;
+        }
+        
+        // Then list underlying filesystem entries
+        return underlying->readdir(index - mount_count);
+    }
+
+    uint32_t read(uint32_t offset, uint32_t size, uint8_t* buffer) override 
+    {
+        return underlying->read(offset, size, buffer);
+    }
+
+    uint32_t write(uint32_t offset, uint32_t size, uint8_t* buffer) override 
+    {
+        return underlying->write(offset, size, buffer);
+    }
+
+    VFSNode* create(const char* name, uint32_t flags) override 
+    {
+        return underlying->create(name, flags);
+    }
+
+    int mkdir(const char* name, uint32_t mode) override 
+    {
+        return underlying->mkdir(name, mode);
+    }
+
+    bool unlink(const char* name) override 
+    {
+        return underlying->unlink(name);
+    }
+
+    void open() override { ref_count++; }
+    void close() override { if (ref_count > 0) ref_count--; }
+};
+
 #endif      // VFS_NODE

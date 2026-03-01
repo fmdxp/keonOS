@@ -93,9 +93,7 @@ void terminal_putchar(char c)
 
 	if (c == '\b') 
 	{
-		if (terminal_column > 0) 
-            terminal_column--;
-        
+		if (terminal_column > 0) terminal_column--;
         else if (terminal_row > 0) 
 		{
             terminal_row--;
@@ -113,8 +111,7 @@ void terminal_putchar(char c)
 	if (++terminal_column == VGA_WIDTH) 
 	{
 		terminal_column = 0;
-		if (++terminal_row == VGA_HEIGHT)
-			terminal_scroll();
+		if (++terminal_row == VGA_HEIGHT) terminal_scroll();
 	}
 
     update_cursor(terminal_column, terminal_row);
@@ -124,8 +121,7 @@ void terminal_putchar(char c)
 
 void terminal_write(const char* data, size_t size)
 {
-	for (size_t i = 0; i < size; i++)
-		terminal_putchar(data[i]);
+	for (size_t i = 0; i < size; i++) terminal_putchar(data[i]);
 }
 
 void terminal_writestring(const char* data)
@@ -152,9 +148,19 @@ void update_cursor(size_t x, size_t y)
 
     outb(0x3D4, 0x0F);
     outb(0x3D5, (uint8_t)(pos & 0xFF)); 
-
 	outb(0x80, 0);
-
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+}
+
+void terminal_move_cursor(int dx)
+{
+    int current_pos = (int)terminal_row * VGA_WIDTH + (int)terminal_column;
+    current_pos += dx;
+    if (current_pos < 0) current_pos = 0;
+    else if (current_pos >= (int)(VGA_HEIGHT * VGA_WIDTH)) current_pos = VGA_HEIGHT * VGA_WIDTH - 1;
+    
+    terminal_row = (size_t)(current_pos / VGA_WIDTH);
+    terminal_column = (size_t)(current_pos % VGA_WIDTH);
+    update_cursor(terminal_column, terminal_row);
 }

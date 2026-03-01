@@ -30,6 +30,7 @@ void ATADriver::wait_drq() { while (!(inb(ATA_PRIMARY_COMM_STAT) & 0x08)); }
 void ATADriver::read_sectors(uint32_t lba, uint8_t count, uint8_t* buffer) 
 {
     ATADriver::wait_bsy();
+
     outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F));
     outb(0x1F2, count);
     outb(0x1F3, (uint8_t)lba);
@@ -50,6 +51,7 @@ void ATADriver::read_sectors(uint32_t lba, uint8_t count, uint8_t* buffer)
 void ATADriver::write_sectors(uint32_t lba, uint8_t count, uint8_t* buffer) 
 {
     ATADriver::wait_bsy();
+    
     outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F));
     outb(0x1F2, count);
     outb(0x1F3, (uint8_t)lba);

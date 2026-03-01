@@ -38,6 +38,7 @@
 #include <drivers/serial.h>
 #include <drivers/timer.h>
 #include <drivers/vga.h>
+#include <exec/kex_loader.h>
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -102,7 +103,8 @@ static const char* command_list[] =
 {
     "help", "clear", "echo", "info", "testheap", "meminfo", 
     "reboot", "halt", "paginginfo", "testpaging", "memstat", "dump",
-	"uptime", "ps", "pkill", "ls", "cat", "cd", "mkdir", "touch", "rm"
+	"uptime", "ps", "pkill", "ls", "cat", "cd", "mkdir", "touch", "rm",
+    "sleep", "pid", "stat"
 };
 #define COMMAND_COUNT (sizeof(command_list) / sizeof(char*))
 
@@ -181,6 +183,10 @@ static void cmd_help(const char* args)
         printf("  rm <f>     - Deletes a file\n");
         printf("  mkdir <d>  - Create a new directory\n");
         printf("  echo <msg> - Print text or arguments to screen\n");
+
+        printf("  sleep <ms> - Sleep for milliseconds\n");
+        printf("  pid        - Show current Process ID\n");
+        printf("  stat <f>   - Show file statistics\n");
 
         printf("\nTip: Press [TAB] for autocompletion and [UP/DOWN] for history.\n");
     }
@@ -453,6 +459,109 @@ static void cmd_pkill(const char* args)
     if (thread_kill(id)) printf("Thread %d terminated.\n", id);
     else printf("Error: Could not kill thread %d.\n", id);
 #endif
+}
+
+/**
+ * cmd_sleep: Sleeps for a given amount of milliseconds
+ */
+static void cmd_sleep(const char* args) 
+{
+    if (!args || args[0] == '\0') 
+    {
+        printf("Usage: sleep <ms>\n");
+        return;
+    }
+
+    uint32_t ms = (uint32_t)atoi(args);
+
+    if (is_user_mode()) 
+    {
+        syscall(SYS_SLEEP, (uint64_t)ms, 0, 0, 0, 0, 0);
+    }
+    else 
+    {
+#if defined(__is_libk)
+        thread_sleep(ms);
+#endif
+    }
+    printf("Slept for %d ms.\n", ms);
+}
+
+/**
+ * cmd_pid: Displays the current process ID
+ */
+static void cmd_pid() 
+{
+    if (is_user_mode()) 
+    {
+        uint64_t pid = syscall(SYS_GETPID, 0, 0, 0, 0, 0, 0);
+        printf("Current PID: %d\n", (int)pid);
+    }
+    else 
+    {
+#if defined(__is_libk)
+        thread_t* current = thread_get_current();
+        if (current) printf("Current PID: %d (Kernel Thread)\n", current->id);
+#endif
+    }
+}
+
+/**
+ * cmd_stat: Displays file statistics
+ */
+static void cmd_stat(const char* args) 
+{
+    if (!args || args[0] == '\0') 
+    {
+        printf("Usage: stat <path>\n");
+        return;
+    }
+
+    char full_path[512];
+    resolve_path(full_path, args);
+
+    struct stat_struct {
+        uint64_t st_dev;
+        uint64_t st_ino;
+        uint32_t st_mode;
+        uint32_t st_nlink;
+        uint32_t st_uid;
+        uint32_t st_gid;
+        uint64_t st_rdev;
+        uint64_t st_size;
+        uint64_t st_blksize;
+        uint64_t st_blocks;
+        uint64_t st_atime;
+        uint64_t st_mtime;
+        uint64_t st_ctime;
+    } st;
+
+    if (is_user_mode()) 
+    {
+        if (syscall(SYS_STAT, (uint64_t)full_path, (uint64_t)&st, 0, 0, 0, 0) == 0) 
+        {
+            printf("File: %s\n", args);
+            printf("Size: %ld bytes\n", st.st_size);
+            printf("Inode: %ld\n", st.st_ino);
+            printf("Mode: %o\n", st.st_mode);
+        }
+        else printf("stat: cannot stat '%s'\n", args);
+    }
+    else 
+    {
+#if defined(__is_libk)
+        VFSNode* node = vfs_open(full_path);
+        if (node) 
+        {
+            printf("File: %s\n", args);
+            printf("Size: %d bytes\n", node->size);
+            printf("Inode: %d\n", node->inode);
+            printf("Type: %d\n", node->type);
+            vfs_close(node);
+        }
+        else printf("stat: cannot stat '%s'\n", args);
+#endif
+    }
 }
 
 /**
@@ -1087,11 +1196,11 @@ void shell_execute(const char* command)
     while (*command == ' ') command++;
     if (strlen(command) == 0) return; 
     
-    char cmd[32];
+    char cmd[256];
     const char* args = command;
     int i = 0;
     
-    while (*args && *args != ' ' && i < 31) 
+    while (*args && *args != ' ' && i < 255) 
         cmd[i++] = *args++;
     cmd[i] = '\0';
     
@@ -1138,8 +1247,39 @@ void shell_execute(const char* command)
     else if (strcmp(cmd, "touch") == 0)         cmd_touch(clean_args);
     else if (strcmp(cmd, "mkdir") == 0)         cmd_mkdir(clean_args);
     else if (strcmp(cmd, "rm") == 0)            cmd_rm(clean_args); 
+    else if (strcmp(cmd, "sleep") == 0)         cmd_sleep(clean_args);
+    else if (strcmp(cmd, "pid") == 0)           cmd_pid();
+    else if (strcmp(cmd, "stat") == 0)          cmd_stat(clean_args);
 
-	else printf("Unknown command: %s\nType 'help' for available commands", command);
+    else 
+    {
+        char* kargv[16];
+        kargv[0] = cmd;
+        int kargc = 1;
+        char* p = args_buffer;
+        while (*p && kargc < 15) {
+             kargv[kargc++] = p;
+             while(*p && *p != ' ') p++;
+             if (*p) *p++ = 0;
+             while(*p == ' ') p++;
+        }
+        kargv[kargc] = nullptr; 
+
+        int pid = kex_load(cmd, kargc, kargv);
+        if (pid > 0) 
+        {
+             // Wait for process
+             while (thread_get_by_id(pid) != nullptr) 
+             {
+                 thread_sleep(20);
+             }
+             // Process context switch will return here when thread is gone
+        }
+        else 
+        {
+             printf("Unknown command: %s\nType 'help' for available commands", command);
+        }
+    }
     shell_setcolor(vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
 }
 
@@ -1151,9 +1291,10 @@ void shell_execute(const char* command)
 void shell_run() 
 {
     shell_prompt();
+    int cursor_pos = 0;
     
     while (true) 
-	{
+    {
         char c = getchar();
         if (c == 0) continue;
 
@@ -1175,29 +1316,59 @@ void shell_run()
                 shell_execute(input_buffer);
             }
             buffer_pos = 0;
+            cursor_pos = 0;
             history_index = -1;
             shell_prompt();
         }
 
-		else if (c == '\b') 
+        else if (c == '\b') 
         {    
-            if (buffer_pos > 0) 
+            if (cursor_pos > 0) 
             {
+                cursor_pos--;
                 buffer_pos--;
+                
+                for (int i = cursor_pos; i < buffer_pos; i++) {
+                    input_buffer[i] = input_buffer[i+1];
+                }
                 input_buffer[buffer_pos] = '\0';
                 
-                putchar('\b');
-                putchar(' ');
-                putchar('\b');
+                terminal_move_cursor(-1);
+
+                #if defined(__is_libk)
+                    serial_move_cursor(-1);
+                #endif
+                for (int i = cursor_pos; i < buffer_pos; i++) printf("%c", input_buffer[i]);
+                printf(" "); 
+                terminal_move_cursor(-(buffer_pos - cursor_pos + 1));
+                #if defined(__is_libk)
+                    serial_move_cursor(-(buffer_pos - cursor_pos + 1));
+                #endif  
             }
         }
 
-        else if (c == '\t') shell_tab_completion();
-		
-		else if (buffer_pos < SHELL_BUFFER_SIZE - 1 && c >= 32 && c <= 126) 
+        else if (c == '\t') 
         {
-            input_buffer[buffer_pos++] = c;
-            printf("%c", c);
+            if (cursor_pos == buffer_pos) {
+                shell_tab_completion();
+                cursor_pos = buffer_pos;
+            }
+        }
+        
+        else if (buffer_pos < SHELL_BUFFER_SIZE - 1 && c >= 32 && c <= 126) 
+        {
+            for (int i = buffer_pos; i > cursor_pos; i--) {
+                input_buffer[i] = input_buffer[i-1];
+            }
+            input_buffer[cursor_pos] = c;
+            buffer_pos++;
+            cursor_pos++;
+            
+            for (int i = cursor_pos - 1; i < buffer_pos; i++) printf("%c", input_buffer[i]);
+            terminal_move_cursor(-(buffer_pos - cursor_pos));
+            #if defined(__is_libk)
+                serial_move_cursor(-(buffer_pos - cursor_pos));
+            #endif
         }
 
         else if (c == KEY_UP) 
@@ -1205,13 +1376,19 @@ void shell_run()
             if (history_count > 0 && history_index < history_count - 1) 
             {
                 history_index++;
-                while (buffer_pos > 0) 
-                {
-                    printf("\b \b");
-                    buffer_pos--;
-                }
+                terminal_move_cursor(-cursor_pos);
+                #if defined(__is_libk)
+                    serial_move_cursor(-cursor_pos);
+                #endif
+                for (int i = 0; i < buffer_pos; i++) printf(" ");
+                terminal_move_cursor(-buffer_pos);
+                #if defined(__is_libk)
+                    serial_move_cursor(-buffer_pos);
+                #endif
+                
                 strcpy(input_buffer, history[history_index]);
                 buffer_pos = strlen(input_buffer);
+                cursor_pos = buffer_pos;
                 printf("%s", input_buffer);
             }
         }
@@ -1221,17 +1398,60 @@ void shell_run()
             if (history_index > 0) 
             {
                 history_index--;
-                while (buffer_pos > 0) { printf("\b \b"); buffer_pos--; }
+                terminal_move_cursor(-cursor_pos);
+                #if defined(__is_libk)
+                    serial_move_cursor(-cursor_pos);
+                #endif
+                for (int i = 0; i < buffer_pos; i++) printf(" ");
+                terminal_move_cursor(-buffer_pos);
+                #if defined(__is_libk)
+                    serial_move_cursor(-buffer_pos);
+                #endif
                 
                 strcpy(input_buffer, history[history_index]);
                 buffer_pos = strlen(input_buffer);
+                cursor_pos = buffer_pos;
                 printf("%s", input_buffer);
             }
             else if (history_index == 0) 
             {
                 history_index = -1;
-                while (buffer_pos > 0) { printf("\b \b"); buffer_pos--; }
+                terminal_move_cursor(-cursor_pos);
+                #if defined(__is_libk)
+                    serial_move_cursor(-cursor_pos);
+                #endif
+                for (int i = 0; i < buffer_pos; i++) printf(" ");
+                terminal_move_cursor(-buffer_pos);
+                #if defined(__is_libk)
+                    serial_move_cursor(-buffer_pos);
+                #endif
                 input_buffer[0] = '\0';
+                buffer_pos = 0;
+                cursor_pos = 0;
+            }
+        }
+        
+        else if (c == KEY_LEFT)
+        {
+            if (cursor_pos > 0)
+            {
+                cursor_pos--;
+                terminal_move_cursor(-1);
+                #if defined(__is_libk)
+                    serial_move_cursor(-1);
+                #endif
+            }
+        }
+        
+        else if (c == KEY_RIGHT)
+        {
+            if (cursor_pos < buffer_pos)
+            {
+                cursor_pos++;
+                terminal_move_cursor(1);
+                #if defined(__is_libk)
+                    serial_move_cursor(1);
+                #endif
             }
         }
     }

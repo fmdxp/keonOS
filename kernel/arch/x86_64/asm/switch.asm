@@ -45,4 +45,9 @@ switch_context:
     ret
 
 user_thread_entry:
+    mov ax, 0x1B
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
     iretq

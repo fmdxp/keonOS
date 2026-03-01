@@ -26,7 +26,7 @@
 extern VFSNode* vfs_root;
 extern VFSNode* cwd_node;
 
-void vfs_init();
+void vfs_init(VFSNode* root_node = nullptr);
 void vfs_mount(VFSNode* node);
 
 VFSNode* vfs_open(const char* path);

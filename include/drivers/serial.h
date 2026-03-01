@@ -29,5 +29,6 @@ void write_serial(char a);
 void serial_putc(char c);
 int serial_received();
 char serial_getc();
+void serial_move_cursor(int dx);
 
 #endif		// SERIAL_H

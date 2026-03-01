@@ -64,6 +64,9 @@ def pack():
             next_h,
             0
         )
+        if padding_before > 0:
+            payloads.append(b'\x00' * padding_before)
+
         headers.append(header)
         payloads.append(data)
 

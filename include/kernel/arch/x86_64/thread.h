@@ -46,7 +46,13 @@ struct thread_t
     thread_state_t state;
     uint32_t sleep_ticks;
     int      exit_code;
+    
+    // Virtual Memory Layout
+    uintptr_t user_image_start;
+    uintptr_t user_image_end;
     uintptr_t user_heap_break;
+    uintptr_t dyn_lib_break; // Base address for next dynamic library load
+    
     VFSNode* fd_table[16];
     uint32_t fd_offset[16];
 };
@@ -79,6 +85,7 @@ void spin_lock_irqsave(spinlock_t* lock);
 void spin_unlock_irqrestore(spinlock_t* lock);
 void cleanup_zombies();
 int64_t thread_kill_by_string(const char* input);
+thread_t* thread_get_by_id(uint32_t id);
 void user_test_thread();
 thread_t* thread_create_user(void (*entry_point)(), const char* name);
 

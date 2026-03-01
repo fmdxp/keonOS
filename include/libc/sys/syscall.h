@@ -51,6 +51,10 @@ static inline uint64_t syscall(uint64_t num, uint64_t a1, uint64_t a2, uint64_t 
 #define SYS_UPTIME  5
 #define SYS_UNLINK  6
 #define SYS_READDIR 7
+#define SYS_STAT    8
+#define SYS_FSTAT   9
+#define SYS_GETPID  10
+#define SYS_SLEEP   11
 #define SYS_SBRK    12
 #define SYS_KILL    37
 #define SYS_EXIT    60

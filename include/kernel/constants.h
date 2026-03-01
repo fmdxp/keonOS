@@ -25,7 +25,7 @@
 
 #define OS_NAME				"keonOS"
 #define OS_VERSION_MAJOR	"0"
-#define OS_VERSION_MINOR	"5"
+#define OS_VERSION_MINOR	"6"
 #define OS_VERSION_PATCH	" "			// Uses letters
 
 #define OS_VERSION_STRING 			OS_NAME " v" OS_VERSION_MAJOR "." OS_VERSION_MINOR OS_VERSION_PATCH
@@ -88,6 +88,8 @@
 
 #define KEY_UP   0x11
 #define KEY_DOWN 0x12
+#define KEY_LEFT 0x13
+#define KEY_RIGHT 0x14
 
 
 
@@ -137,5 +139,9 @@
 #define ATA_PRIMARY_COMM_STAT    0x1F7
 
 
+
+// EXT4 CONSTANTS
+
+#define MAX_TRANS_BLOCKS 16
 
 #endif 		// CONSTANTS_H

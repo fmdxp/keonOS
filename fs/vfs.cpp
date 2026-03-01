@@ -35,9 +35,17 @@ static const char* skip_slashes(const char* path)
     return path;
 }
 
-void vfs_init() 
+void vfs_init(VFSNode* root_node) 
 {
-    vfs_root = new (rootfs_buffer) RootFS();
+    if (root_node == nullptr) 
+    {
+        // Fallback to RootFS if no root provided
+        vfs_root = new (rootfs_buffer) RootFS();
+    } 
+    else 
+    {
+        vfs_root = root_node;
+    }
 }
 
 void vfs_mount(VFSNode* node) 

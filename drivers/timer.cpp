@@ -93,7 +93,6 @@ void timer_sleep(uint32_t milliseconds)
         uint32_t start = timer_ticks;
         while ((timer_ticks - start) < ticks_to_wait)
             asm volatile("pause");
-    
         return;
     }
 

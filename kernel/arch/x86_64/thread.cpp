@@ -83,9 +83,59 @@ void cleanup_zombies()
     while (curr) 
     {
         thread_t* next = curr->next;
-        printf("[reaper] Cleaning %d (%s). Exit code: %d\n", curr->id, curr->name, curr->exit_code);
+        if (curr->stack_start) {
+            kfree(curr->stack_start);
+        }
         
-        if (curr->stack_start) kfree(curr->stack_start);
+        if (curr->is_user) 
+        {
+             
+             // 1. Free User Stack (Fixed 16KB at 0x0000700000000000)
+             // Note: t->user_stack points to TOP. Base is top - 16384.
+             // But we know the fixed virtual address is 0x0000700000000000
+            uintptr_t stack_base = 0x0000700000000000;
+            for (int i = 0; i < 4; i++) 
+            {
+                uintptr_t addr = stack_base + i * 4096;
+                void* phys = paging_get_physical_address((void*)addr);
+                if (phys) 
+                {
+                    pfa_free_frame(phys);
+                    paging_unmap_page((void*)addr);
+                }
+            }
+
+             // 2. Free User Code/Data (Image)
+             if (curr->user_image_end > curr->user_image_start) 
+             {
+                 for (uintptr_t addr = curr->user_image_start; addr < curr->user_image_end; addr += 4096)
+                 {
+                     void* phys = paging_get_physical_address((void*)addr);
+                     if (phys) 
+                     {
+                         pfa_free_frame(phys);
+                         paging_unmap_page((void*)addr);
+                     }
+                 }
+             }
+
+             // 3. Free User Heap (Standard start 1GB)
+             // This covers both sbrk growth and huge ELFs overlaps (safe due to checks)
+             uintptr_t heap_start = 0x40000000;
+             if (curr->user_heap_break > heap_start) 
+             {
+                 for (uintptr_t addr = heap_start; addr < curr->user_heap_break; addr += 4096)
+                 {
+                     void* phys = paging_get_physical_address((void*)addr);
+                     if (phys) 
+                     {
+                         pfa_free_frame(phys);
+                         paging_unmap_page((void*)addr);
+                     }
+                 }
+             }
+         }
+
         kfree(curr);
         
         curr = next;
@@ -155,11 +205,6 @@ extern "C" void yield()
 
     do 
     {
-        if (scan->id == 2 && scan->state == THREAD_BLOCKED) 
-        {
-            scan->state = THREAD_READY;
-        }
-
         if (scan->state == THREAD_READY && scan != idle_thread_ptr) 
         {
             next_to_run = scan;
@@ -184,8 +229,10 @@ extern "C" void yield()
         uint64_t kstack = (uint64_t)next_to_run->stack_start + 16384;
         
         if (next_to_run->is_user)
+        {
             kernel_tss.rsp0 = kstack;
-        
+        }
+            
         syscall_set_kernel_stack(kstack);
         
         switch_context(&(prev->rsp), next_to_run->rsp);
@@ -249,9 +296,16 @@ thread_t* thread_create_user(void (*entry_point)(), const char* name)
     
     // Increase user stack to 16KB (4 pages)
     uintptr_t u_stack_virt = 0x0000700000000000;
+    
     for (int i = 0; i < 4; i++) 
     {
         void* u_stack_phys = pfa_alloc_frame();
+        if (!u_stack_phys) 
+        {
+             kfree(k_stack);
+             kfree(t);
+             return nullptr;
+        }
         paging_map_page((void*)(u_stack_virt + i * 4096), u_stack_phys, PTE_PRESENT | PTE_RW | PTE_USER);
     }
     uintptr_t u_stack_top = u_stack_virt + 16384;
@@ -263,6 +317,8 @@ thread_t* thread_create_user(void (*entry_point)(), const char* name)
     t->user_stack = (uint64_t*)u_stack_top;
     t->user_heap_break = 0x600000;
     strncpy(t->name, name, 15);
+    t->user_image_start = 0;
+    t->user_image_end = 0;
 
     uint64_t* sp = (uint64_t*)((uintptr_t)k_stack + 16384);
 
@@ -282,7 +338,7 @@ thread_t* thread_create_user(void (*entry_point)(), const char* name)
     *(--sp) = 0;     // RBX
     *(--sp) = 0;     // RBP
 
-    
+
     t->rsp = sp;
     return t;
 }
@@ -447,6 +503,18 @@ int64_t thread_kill_by_string(const char* input)
     }
 
     if (thread_kill(id)) return 0;
-    
     return -EPERM;
+}
+
+thread_t* thread_get_by_id(uint32_t id)
+{
+    if (!current_thread) return nullptr;
+    
+    thread_t* temp = current_thread;
+    do {
+        if (temp->id == id) return temp;
+        temp = temp->next;
+    } while (temp != current_thread);
+    
+    return nullptr;
 }

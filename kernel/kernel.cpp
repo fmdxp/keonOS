@@ -38,6 +38,7 @@
 #include <fs/vfs.h>
 #include <fs/ramfs.h>
 #include <fs/vfs_node.h>
+#include <fs/ext4_vfs.h>
 #include <fs/fat32_vfs.h>
 #include <fs/ramfs_vfs.h>
 #include <fs/fat32_structs.h>
@@ -62,36 +63,53 @@ extern "C" tss_entry kernel_tss;
 
 void init_file_system(void* ramdisk_vaddr) 
 {
-    vfs_init();
-    RootFS* root = (RootFS*)vfs_root;
+    // 1. Try to find ext4 partition first
+    uint32_t ext4_lba = ext4_inst.find_ext4_partition();
+    MountOverlayNode* root_overlay = nullptr;
 
-    SimpleDirectory* dev_dir = new SimpleDirectory("dev");
-    root->register_node(dev_dir);
-    
-    DeviceNode* disk = new DeviceNode("keon_disk");
-    dev_dir->size = 64 * 1024 * 1024;
-    dev_dir->add_child(disk);
-
-    SimpleDirectory* mnt_dir = new SimpleDirectory("mnt");
-    root->register_node(mnt_dir);
-
-    uint32_t fat_lba = fat32_inst.find_fat32_partition();
-    if (fat_lba != 0) 
+    if (ext4_lba != 0) 
     {
-        fat32_inst.init(fat_lba);
+        ext4_inst.init(ext4_lba);
+        printf("[VFS] EXT4 partition found at LBA %d\n", ext4_lba);
         
-        FAT32_Directory* fat_root = new FAT32_Directory("fat32", 
+        // Create Ext4Directory as root ("/", inode 2)
+        Ext4Directory* ext4_root = new Ext4Directory("/", 2, &ext4_inst.sb);
+        root_overlay = new MountOverlayNode(ext4_root);
+        
+        printf("[VFS] EXT4 mounted as root filesystem\n");
+    }
+    else 
+    {
+        // Fallback to FAT32
+        uint32_t fat_lba = fat32_inst.find_fat32_partition();
+        if (fat_lba == 0) 
+        {
+            panic(KernelError::K_ERR_GENERAL_PROTECTION, "No bootable filesystem found (ext4/fat32)");
+        }
+        
+        fat32_inst.init(fat_lba);
+        printf("[VFS] FAT32 partition found at LBA %d\n", fat_lba);
+        
+        FAT32_Directory* fat_root = new FAT32_Directory("/", 
                                        fat32_inst.bpb.root_cluster, 
                                        &fat32_inst.bpb);
         
-        mnt_dir->add_child(fat_root);
+        root_overlay = new MountOverlayNode(fat_root);
+        printf("[VFS] FAT32 mounted as root filesystem\n");
     }
-
+    
+    // Initialize VFS with the selected root
+    vfs_init(root_overlay);
+    
+    // 5. Mount initrd at /initrd if available
     if (ramdisk_vaddr != nullptr) 
     {
-        KeonFS_MountNode* ramfs_ptr = new KeonFS_MountNode("initrd", ramdisk_vaddr);
-        root->register_node(ramfs_ptr);
+        KeonFS_MountNode* initrd_fs = new KeonFS_MountNode("initrd", ramdisk_vaddr);
+        root_overlay->add_mount("initrd", initrd_fs);
+        printf("[VFS] initrd mounted at /initrd (read-only)\n");
     }
+    
+    printf("[VFS] Filesystem initialization complete\n");
 }
 
 extern "C" void kernel_main([[maybe_unused]] uint64_t magic, uint64_t multiboot_phys_addr)
@@ -230,7 +248,13 @@ extern "C" void kernel_main([[maybe_unused]] uint64_t magic, uint64_t multiboot_
 	// 8. Idle Loop
     // The main kernel thread enters a low-power halt loop
     // Context will be switched to the shell and other tasks by the timer interrupt
-	while (1) asm volatile("hlt");
+	while (1) 
+    {
+        asm volatile("cli");
+        cleanup_zombies();
+        asm volatile("sti");
+        asm volatile("hlt");
+    }
 	
 }
 

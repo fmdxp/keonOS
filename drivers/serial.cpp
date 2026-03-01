@@ -79,3 +79,27 @@ void serial_putc(char c)
     else write_serial(c);
     
 }
+
+void serial_move_cursor(int dx)
+{
+    if (dx == 0) return;
+    
+    write_serial('\x1B');
+    write_serial('[');
+    
+    int abs_dx = dx > 0 ? dx : -dx;
+    char dir = dx > 0 ? 'C' : 'D';
+    
+    if (abs_dx >= 100) {
+        write_serial('0' + (abs_dx / 100));
+        write_serial('0' + ((abs_dx / 10) % 10));
+        write_serial('0' + (abs_dx % 10));
+    } else if (abs_dx >= 10) {
+        write_serial('0' + (abs_dx / 10));
+        write_serial('0' + (abs_dx % 10));
+    } else {
+        write_serial('0' + abs_dx);
+    }
+    
+    write_serial(dir);
+}

@@ -209,6 +209,7 @@ static pt_entry* get_pte(pt_entry* pml4_base, void* virtual_addr, bool create, u
         else
         {
             if (flags & PTE_USER) table[indices[i]] |= PTE_USER;
+            if (flags & PTE_RW) table[indices[i]] |= PTE_RW;
         }
         table = (pt_entry*)phys_to_virt(table[indices[i]] & ~0xFFFULL);
     }

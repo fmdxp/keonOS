@@ -22,6 +22,8 @@ CC = cross/bin/x86_64-elf-g++
 LD = cross/bin/x86_64-elf-ld
 ASM = nasm
 PYTHON = python3
+CC_USER = cross/bin/x86_64-elf-gcc
+
 
 ARCH_TO_COMPILE = x86_64
 
@@ -59,7 +61,7 @@ HDA_IMG = harddisk.img
 HDA_SIZE = 64
 
 
-SRC_C = $(wildcard $(KERNEL_DIR)/*.cpp) $(wildcard $(FS_DIR)/*.cpp) $(wildcard $(LIBC_DIR)/*/*.cpp) $(wildcard $(DRIVERS_DIR)/*.cpp) $(wildcard $(ARCH_DIR)/$(ARCH_TO_COMPILE)/*.cpp) $(wildcard $(MM_DIR)/*.cpp) $(wildcard $(PROC_DIR)/*.cpp) $(wildcard $(SYSCALLS_DIR)/*.cpp)
+SRC_C = $(wildcard $(KERNEL_DIR)/*.cpp) $(wildcard $(KERNEL_DIR)/exec/*.cpp) $(wildcard $(FS_DIR)/*.cpp) $(wildcard $(LIBC_DIR)/*/*.cpp) $(wildcard $(DRIVERS_DIR)/*.cpp) $(wildcard $(ARCH_DIR)/$(ARCH_TO_COMPILE)/*.cpp) $(wildcard $(MM_DIR)/*.cpp) $(wildcard $(PROC_DIR)/*.cpp) $(wildcard $(SYSCALLS_DIR)/*.cpp)
 OBJ_C = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(SRC_C))
 
 SRC_ASM = $(wildcard $(BOOT_DIR)/*.asm)	$(wildcard $(ARCH_DIR)/$(ARCH_TO_COMPILE)/asm/*.asm)
@@ -100,30 +102,34 @@ $(GRUB_CFG):
 	echo '	boot' >> $(GRUB_CFG)
 	echo '}' >> $(GRUB_CFG)
 
-$(INITRD_IMG): $(INITRD_SRC)
+$(INITRD_IMG): $(INITRD_SRC) $(INITRD_SRC)/hello.kex $(INITRD_SRC)/test_file.kex $(INITRD_SRC)/test_sys.kex $(INITRD_SRC)/test_kdl.kex $(INITRD_SRC)/math.kdl
 	@mkdir -p $(ISO_DIR)/boot
 	@echo "Packing RamFS (keonFS)..."
 	@$(PYTHON) $(SCRIPTS_DIR)/pack_keonfs.py
 
 $(HDA_IMG):
-	@echo "Creating FAT32 Hard Disk image..."
+	@echo "Creating ext4 Hard Disk image..."
 	@dd if=/dev/zero of=$(HDA_IMG) bs=1M count=$(HDA_SIZE) 2>/dev/null
 	@parted -s $(HDA_IMG) mklabel msdos
-	@parted -s $(HDA_IMG) mkpart primary fat32 1MiB 100%
-	@mformat -i $(HDA_IMG)@@1M -F -v "KEONOS" ::
-	@echo "Welcome to keonOS v0.5-alpha! Type 'help' to start exploring" > temp_readme.txt
-	@mcopy -i $(HDA_IMG)@@1M temp_readme.txt ::/readme.txt
-	@rm temp_readme.txt
-	@echo "Hard disk created."
+	@parted -s $(HDA_IMG) mkpart primary ext4 1MiB 100%
+	@# Format partition 1 as ext4
+	@dd if=/dev/zero of=partition.img bs=1M count=63 2>/dev/null
+	@mkfs.ext4 -q -F partition.img
+	@dd if=partition.img of=$(HDA_IMG) bs=1M seek=1 conv=notrunc 2>/dev/null
+	@rm partition.img
+	@echo "Hard disk created (ext4)."
 
 
 iso: $(ISO_DIR)/boot/kernel.bin $(GRUB_CFG) $(INITRD_IMG)
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
 	@echo "Created iso file: $(ISO_IMG)"
 
-run: $(ISO_IMG) $(HDA_IMG)
+run: iso $(HDA_IMG)
  
 	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(HDA_IMG) -serial stdio -m 512M -boot d -machine acpi=off -d int,cpu_reset -D qemu.log
+
+debug: iso $(HDA_IMG)
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(HDA_IMG) -serial stdio -m 512M -boot d -machine acpi=off -d int,cpu_reset -D qemu.log -s -S
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -131,5 +137,28 @@ clean:
 	rm -rf $(ISO_IMG)
 	rm -rf $(HDA_IMG)
 	rm -rf qemu.log
+	rm -rf $(INITRD_SRC)/*.kex
+	$(MAKE) -C user clean
+
+$(INITRD_SRC)/hello.kex: user/hello.c user/kex.ld
+	@mkdir -p $(INITRD_SRC)
+	$(MAKE) -C user
+	cp user/hello.kex $@
+
+$(INITRD_SRC)/test_file.kex: user/tests/test_file.c
+	$(MAKE) -C user
+	cp user/test_file.kex $@
+
+$(INITRD_SRC)/test_sys.kex: user/tests/test_sys.c
+	$(MAKE) -C user
+	cp user/test_sys.kex $@
+
+$(INITRD_SRC)/test_kdl.kex: user/tests/test_kdl.c
+	$(MAKE) -C user
+	cp user/test_kdl.kex $@
+
+$(INITRD_SRC)/math.kdl: user/libkex/libmath.c
+	$(MAKE) -C user
+	cp user/math.kdl $@
 
 .PHONY: all clean iso run

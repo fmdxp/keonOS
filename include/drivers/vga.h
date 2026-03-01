@@ -72,5 +72,6 @@ void terminal_write(const char* data, size_t size);
 void terminal_writestring(const char* data);
 void terminal_clear(vga_color_t custom_color = vga_color_t(VGA_COLOR_WHITE, VGA_COLOR_BLACK));
 void update_cursor(size_t x, size_t y);
+void terminal_move_cursor(int dx);
 
 #endif		// VGA_H
